@@ -1,3 +1,7 @@
+import 'package:capit_n_bulls/margin_screen.dart';
+import 'package:capit_n_bulls/orders_screen.dart';
+import 'package:capit_n_bulls/settings_screen.dart';
+import 'package:capit_n_bulls/trade_book_screen.dart';
 import 'package:flutter/material.dart';
 import './watchlist_screen.dart';
 import './watchlist_app_bar.dart';
@@ -16,6 +20,7 @@ class MyApp extends StatelessWidget {
       title: 'Watchlist',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        fontFamily: 'Poppins',
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.black),
         useMaterial3: true,
         scaffoldBackgroundColor: Colors.white,
@@ -31,24 +36,31 @@ class MainShell extends StatefulWidget {
   @override
   State<MainShell> createState() => _MainShellState();
 }
-
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  // Add your other screen widgets here as you build them out
+  // Titles mapped to each tab index
+  static const List<String> _titles = [
+    'Watchlist',
+    'Orders',
+    'Trade Book',
+    'Margin',
+    'Settings',
+  ];
+
   final List<Widget> _screens = [
     const WatchlistScreen(),
-    const Center(child: Text('Orders')),
-    const Center(child: Text('Tradebook')),
-    const Center(child: Text('Margin')),
-    const Center(child: Text('Settings')),
+    const OrdersScreen(),
+    const TradeBookScreen(),
+    const MarginScreen(),
+    const SettingsScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const WatchlistAppBar(),
+      appBar: WatchlistAppBar(title: _titles[_currentIndex]), // Pass title here
       body: _screens[_currentIndex],
       bottomNavigationBar: StockBottomNavBar(
         currentIndex: _currentIndex,

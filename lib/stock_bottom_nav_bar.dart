@@ -12,48 +12,40 @@ class StockBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const bgColor = Color(0xFFD9D9D9);
+    const activeColor = Color(0xFFBABABA);
+
+    final items = [
+      (Icons.home_outlined, Icons.home, 'Home'),
+      (Icons.list_alt_outlined, Icons.list_alt, 'Watchlist'),
+      (Icons.menu_book_outlined, Icons.menu_book, 'Markets'),
+      (Icons.currency_rupee_outlined, Icons.currency_rupee, 'Portfolio'),
+      (Icons.menu_outlined, Icons.menu, 'More'),
+    ];
+
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade200, width: 1)),
-      ),
-      child: BottomNavigationBar(
-        currentIndex: currentIndex,
-        onTap: onTap,
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedItemColor: Colors.black,
-        unselectedItemColor: Colors.grey.shade500,
-        showSelectedLabels: false,
-        showUnselectedLabels: false,
-        elevation: 0,
-        iconSize: 26,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.list_alt_outlined),
-            activeIcon: Icon(Icons.list_alt),
-            label: 'Watchlist',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart_outlined),
-            activeIcon: Icon(Icons.bar_chart),
-            label: 'Markets',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            activeIcon: Icon(Icons.account_balance_wallet),
-            label: 'Portfolio',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.menu),
-            label: 'More',
-          ),
-        ],
+      color: bgColor,
+      child: Row(
+        children: List.generate(items.length, (index) {
+          final isActive = index == currentIndex;
+          final (outlinedIcon, filledIcon, label) = items[index];
+
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => onTap(index),
+              child: Container(
+                color: isActive ? activeColor : bgColor,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                height: 80,
+                child: Icon(
+                  isActive ? filledIcon : outlinedIcon,
+                  size: 26,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
