@@ -2,23 +2,26 @@ import 'package:capit_n_bulls/wallet_screen.dart';
 import 'package:flutter/material.dart';
 
 class WatchlistAppBar extends StatelessWidget implements PreferredSizeWidget {
-  final String title; // Add this
+  final String title;
 
-  const WatchlistAppBar({super.key, required this.title}); // Add required param
+  const WatchlistAppBar({super.key, required this.title});
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return AppBar(
-      backgroundColor: Colors.white,
+      // Let theme.appBarTheme.backgroundColor drive this
       elevation: 0,
       titleSpacing: 16,
       title: Text(
-        title, // Use the parameter here
-        style: const TextStyle(
-          color: Colors.black,
+        title,
+        style: TextStyle(
+          color: theme.colorScheme.onSurface,
           fontSize: 22,
           fontWeight: FontWeight.bold,
           letterSpacing: 0.2,
@@ -36,7 +39,7 @@ class WatchlistAppBar extends StatelessWidget implements PreferredSizeWidget {
             },
             child: Icon(
               Icons.credit_card_outlined,
-              color: Colors.black87,
+              color: theme.iconTheme.color,
               size: 26,
             ),
           ),
@@ -44,7 +47,11 @@ class WatchlistAppBar extends StatelessWidget implements PreferredSizeWidget {
       ],
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
-        child: Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
+        child: Divider(
+          height: 1,
+          thickness: 1,
+          color: isDark ? const Color(0xFF2C2C2C) : Colors.grey.shade200,
+        ),
       ),
     );
   }

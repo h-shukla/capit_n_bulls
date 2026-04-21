@@ -12,8 +12,12 @@ class StockBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const bgColor = Color(0xFFD9D9D9);
-    const activeColor = Color(0xFFBABABA);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final bgColor = colorScheme.surface;
+    final activeColor = colorScheme.surfaceContainerHighest;
+    final iconColor = colorScheme.onSurface;
 
     final items = [
       (Icons.home_outlined, Icons.home, 'Home'),
@@ -33,14 +37,17 @@ class StockBottomNavBar extends StatelessWidget {
           return Expanded(
             child: GestureDetector(
               onTap: () => onTap(index),
-              child: Container(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
                 color: isActive ? activeColor : bgColor,
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 height: 80,
                 child: Icon(
                   isActive ? filledIcon : outlinedIcon,
                   size: 26,
-                  color: Colors.black,
+                  color: isActive
+                      ? colorScheme.primary
+                      : iconColor.withValues(alpha: 0.7),
                 ),
               ),
             ),

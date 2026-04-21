@@ -1,17 +1,20 @@
+import 'package:capit_n_bulls/login_screen.dart';
+import 'package:capit_n_bulls/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import './providers/theme_provider.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _defaultOrder = 'Delivery';
   int _defaultQty = 10;
   bool _orderConfirmation = true;
-  String _themeMode = 'Light';
 
   final TextEditingController _qtyController = TextEditingController();
 
@@ -27,10 +30,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  String _themeModeLabel(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return 'Light';
+      case ThemeMode.dark:
+        return 'Dark';
+      case ThemeMode.system:
+        return 'System';
+    }
+  }
+
+  ThemeMode _labelToThemeMode(String label) {
+    switch (label) {
+      case 'Dark':
+        return ThemeMode.dark;
+      case 'System':
+        return ThemeMode.system;
+      default:
+        return ThemeMode.light;
+    }
+  }
+
   void _showOrderTypeDialog() {
+    final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: theme.colorScheme.surface, // Use theme background
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -41,13 +67,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // drag handle
                 Container(
                   width: 36,
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: theme.dividerColor,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -60,7 +85,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 14),
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -68,15 +95,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             type,
                             style: TextStyle(
                               fontSize: 15,
-                              color: Colors.black,
+                              color: theme
+                                  .colorScheme
+                                  .onSurface, // Dynamic text color
                               fontWeight: selected
                                   ? FontWeight.w600
                                   : FontWeight.w400,
                             ),
                           ),
                           if (selected)
-                            const Icon(Icons.check,
-                                size: 18, color: Colors.black),
+                            Icon(
+                              Icons.check,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
                         ],
                       ),
                     ),
@@ -90,10 +122,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showThemeDialog() {
+  void _showThemeDialog(ThemeMode currentMode) {
+    final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: theme.colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -109,36 +142,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: theme.dividerColor,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                ...['Light', 'Dark', 'System'].map((theme) {
-                  final selected = _themeMode == theme;
+                ...['Light', 'Dark', 'System'].map((label) {
+                  final selected = _themeModeLabel(currentMode) == label;
                   return InkWell(
                     onTap: () {
-                      setState(() => _themeMode = theme);
+                      ref
+                          .read(themeProvider.notifier)
+                          .setTheme(_labelToThemeMode(label));
                       Navigator.pop(context);
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 14),
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            theme,
+                            label,
                             style: TextStyle(
                               fontSize: 15,
-                              color: Colors.black,
+                              color: theme.colorScheme.onSurface,
                               fontWeight: selected
                                   ? FontWeight.w600
                                   : FontWeight.w400,
                             ),
                           ),
                           if (selected)
-                            const Icon(Icons.check,
-                                size: 18, color: Colors.black),
+                            Icon(
+                              Icons.check,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
                         ],
                       ),
                     ),
@@ -154,8 +194,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeAsync = ref.watch(themeProvider);
+    final currentMode = themeAsync.valueOrNull ?? ThemeMode.light;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -166,22 +211,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
+                  color: colorScheme.surfaceContainerHighest,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.person_outline,
-                    size: 30, color: Colors.grey.shade600),
+                child: Icon(
+                  Icons.person_outline,
+                  size: 30,
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(width: 16),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'John Doe',
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
-                      color: Colors.black,
+                      color: colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -189,7 +237,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'hjohndoe33@gmail.com',
                     style: TextStyle(
                       fontSize: 13,
-                      color: Colors.grey.shade500,
+                      color: colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -198,16 +246,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           const SizedBox(height: 20),
-          Divider(color: Colors.grey.shade200, thickness: 1),
+          Divider(color: theme.dividerColor),
           const SizedBox(height: 16),
 
           // ── Trading Preferences ──
-          const Text(
+          Text(
             'Trading Preferences',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: Colors.black,
+              color: colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 16),
@@ -216,29 +264,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'Default order',
-                style: TextStyle(fontSize: 14, color: Colors.black),
+                style: TextStyle(fontSize: 14, color: colorScheme.onSurface),
               ),
               GestureDetector(
                 onTap: _showOrderTypeDialog,
                 child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
+                    border: Border.all(color: theme.dividerColor),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         _defaultOrder,
-                        style: const TextStyle(fontSize: 13, color: Colors.black),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colorScheme.onSurface,
+                        ),
                       ),
                       const SizedBox(width: 4),
-                      Icon(Icons.keyboard_arrow_down,
-                          size: 16, color: Colors.grey.shade600),
+                      Icon(
+                        Icons.keyboard_arrow_down,
+                        size: 16,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ],
                   ),
                 ),
@@ -251,9 +306,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'Default Qty',
-                style: TextStyle(fontSize: 14, color: Colors.black),
+                style: TextStyle(fontSize: 14, color: colorScheme.onSurface),
               ),
               SizedBox(
                 width: 64,
@@ -262,17 +317,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: _qtyController,
                   keyboardType: TextInputType.number,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 13, color: Colors.black),
+                  style: TextStyle(fontSize: 13, color: colorScheme.onSurface),
                   decoration: InputDecoration(
-                    contentPadding:
-                    const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 6,
+                      horizontal: 8,
+                    ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
+                      borderSide: BorderSide(color: theme.dividerColor),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Colors.black),
+                      borderSide: BorderSide(color: colorScheme.primary),
                     ),
                   ),
                   onChanged: (val) {
@@ -289,32 +346,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'Order Confirmation Dialog',
-                style: TextStyle(fontSize: 14, color: Colors.black),
+                style: TextStyle(fontSize: 14, color: colorScheme.onSurface),
               ),
               Switch(
                 value: _orderConfirmation,
                 onChanged: (val) => setState(() => _orderConfirmation = val),
-                activeColor: Colors.white,
+                activeThumbColor: Colors.white,
                 activeTrackColor: const Color(0xFF4CAF50),
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: Colors.grey.shade300,
               ),
             ],
           ),
 
           const SizedBox(height: 8),
-          Divider(color: Colors.grey.shade200, thickness: 1),
+          Divider(color: theme.dividerColor),
           const SizedBox(height: 16),
 
           // ── Additional Settings ──
-          const Text(
+          Text(
             'Additional Settings',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: Colors.black,
+              color: colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 14),
@@ -338,35 +393,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.compare_arrows,
-                      size: 20, color: Colors.grey.shade700),
+                  Icon(
+                    Icons.palette_outlined,
+                    size: 20,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                   const SizedBox(width: 10),
-                  const Text(
+                  Text(
                     'Theme Mode',
-                    style: TextStyle(fontSize: 14, color: Colors.black),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: colorScheme.onSurface,
+                    ),
                   ),
                 ],
               ),
               GestureDetector(
-                onTap: _showThemeDialog,
+                onTap: () => _showThemeDialog(currentMode),
                 child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        _themeMode,
-                        style:
-                        const TextStyle(fontSize: 13, color: Colors.black),
+                        _themeModeLabel(currentMode),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colorScheme.onSurface,
+                        ),
                       ),
                       const SizedBox(width: 4),
-                      Icon(Icons.keyboard_arrow_down,
-                          size: 16, color: Colors.grey.shade600),
+                      Icon(
+                        Icons.keyboard_arrow_down,
+                        size: 16,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ],
                   ),
                 ),
@@ -378,13 +445,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // ── Logout ──
           SizedBox(
+            width: double.infinity, // Optional: make button full width
             child: ElevatedButton(
-              onPressed: () {},
+              onPressed: () async {
+                await ref.read(authProvider.notifier).logout();
+                if (context.mounted) {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  );
+                }
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFD32F2F),
                 foregroundColor: Colors.white,
-                padding:
-                const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -415,15 +490,16 @@ class _SettingsItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.grey.shade700),
+          Icon(icon, size: 20, color: colorScheme.onSurfaceVariant),
           const SizedBox(width: 10),
           Text(
             label,
-            style: const TextStyle(fontSize: 14, color: Colors.black),
+            style: TextStyle(fontSize: 14, color: colorScheme.onSurface),
           ),
         ],
       ),

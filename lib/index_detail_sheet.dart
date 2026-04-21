@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import './stock.dart';
 
+// Semantic color constants matching your theme
+const _gainGreen = Color(0xFF3FD47E);
+const _lossRed = Color(0xFFE05252);
+
 class IndexDetailSheet extends StatelessWidget {
   final IndexData data;
 
@@ -32,8 +36,9 @@ class IndexDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPositive = data.isPositive;
-    final color = isPositive ? const Color(0xFF00C853) : const Color(0xFFD50000);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final semanticColor = data.isPositive ? _gainGreen : _lossRed;
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
     return Align(
@@ -42,9 +47,12 @@ class IndexDetailSheet extends StatelessWidget {
         color: Colors.transparent,
         child: Container(
           width: double.infinity,
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: isDark
+                ? Border(top: BorderSide(color: theme.dividerColor))
+                : null,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -58,7 +66,7 @@ class IndexDetailSheet extends StatelessWidget {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.black12,
+                      color: isDark ? Colors.white24 : Colors.black12,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -80,25 +88,27 @@ class IndexDetailSheet extends StatelessWidget {
                           children: [
                             Text(
                               data.name,
-                              style: const TextStyle(
+                              style: theme.textTheme.titleLarge?.copyWith(
                                 fontSize: 26,
                                 fontWeight: FontWeight.w800,
-                                color: Color(0xFF1A1A1A),
-                                letterSpacing: 0.5,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
+                                color: isDark
+                                    ? theme.colorScheme.surfaceContainerHighest
+                                    : Colors.grey.shade100,
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 'NSE Index',
                                 style: TextStyle(
-                                  color: Colors.grey.shade500,
+                                  color: theme.hintColor,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 1,
@@ -112,35 +122,36 @@ class IndexDetailSheet extends StatelessWidget {
                           children: [
                             Text(
                               data.value,
-                              style: const TextStyle(
+                              style: theme.textTheme.titleLarge?.copyWith(
                                 fontSize: 24,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF1A1A1A),
                               ),
                             ),
                             const SizedBox(height: 4),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
-                                color: color.withOpacity(0.10),
+                                color: semanticColor.withOpacity(0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
-                                    isPositive
+                                    data.isPositive
                                         ? Icons.arrow_upward_rounded
                                         : Icons.arrow_downward_rounded,
-                                    color: color,
+                                    color: semanticColor,
                                     size: 13,
                                   ),
                                   const SizedBox(width: 3),
                                   Text(
                                     data.change,
                                     style: TextStyle(
-                                      color: color,
+                                      color: semanticColor,
                                       fontSize: 13,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -154,14 +165,14 @@ class IndexDetailSheet extends StatelessWidget {
                     ),
 
                     const SizedBox(height: 24),
-                    Container(height: 1, color: const Color(0xFFEEEEEE)),
+                    Divider(color: theme.dividerColor, height: 1),
                     const SizedBox(height: 16),
 
                     // ── Section label ──
-                    const Text(
+                    Text(
                       'TODAY',
                       style: TextStyle(
-                        color: Color(0xFFBDBDBD),
+                        color: theme.hintColor,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 1.5,
@@ -170,7 +181,7 @@ class IndexDetailSheet extends StatelessWidget {
                     const SizedBox(height: 12),
 
                     // ── Stats grid ──
-                    _StatsGrid(isPositive: isPositive),
+                    const _StatsGrid(),
 
                     const SizedBox(height: 20),
                   ],
@@ -181,17 +192,17 @@ class IndexDetailSheet extends StatelessWidget {
               Container(
                 padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border(
-                    top: BorderSide(color: Colors.grey.shade200),
-                  ),
+                  color: isDark
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : theme.colorScheme.surface,
+                  border: Border(top: BorderSide(color: theme.dividerColor)),
                 ),
                 child: Row(
                   children: [
                     Expanded(
                       child: _IndexOrderButton(
                         label: 'BUY',
-                        color: const Color(0xFF00C853),
+                        color: _gainGreen,
                         indexData: data,
                         isBuy: true,
                       ),
@@ -200,7 +211,7 @@ class IndexDetailSheet extends StatelessWidget {
                     Expanded(
                       child: _IndexOrderButton(
                         label: 'SELL',
-                        color: const Color(0xFFD50000),
+                        color: _lossRed,
                         indexData: data,
                         isBuy: false,
                       ),
@@ -218,61 +229,45 @@ class IndexDetailSheet extends StatelessWidget {
 
 // ── Stats Grid ────────────────────────────────────────────────────────────────
 class _StatsGrid extends StatelessWidget {
-  final bool isPositive;
-  const _StatsGrid({required this.isPositive});
-
-  static const _labelColor = Color(0xFF9E9E9E);
-  static const _valueColor = Color(0xFF1A1A1A);
-  static const _green = Color(0xFF00C853);
-  static const _red = Color(0xFFD50000);
+  const _StatsGrid();
 
   @override
   Widget build(BuildContext context) {
     final stats = [
-      _StatItem(label: 'Open',       value: '19,950.00'),
+      _StatItem(label: 'Open', value: '19,950.00'),
       _StatItem(label: 'Prev Close', value: '19,900.00'),
-      _StatItem(label: 'High',       value: '20,120.50', valueColor: _green),
-      _StatItem(label: 'Low',        value: '19,890.25', valueColor: _red),
-      _StatItem(label: '52W High',   value: '21,964.00', valueColor: _green),
-      _StatItem(label: '52W Low',    value: '17,025.00', valueColor: _red),
+      _StatItem(label: 'High', value: '20,120.50', valueColor: _gainGreen),
+      _StatItem(label: 'Low', value: '19,890.25', valueColor: _lossRed),
+      _StatItem(label: '52W High', value: '21,964.00', valueColor: _gainGreen),
+      _StatItem(label: '52W Low', value: '17,025.00', valueColor: _lossRed),
     ];
 
     return Column(
-      children: _buildRows(stats),
+      children: [
+        for (var i = 0; i < stats.length; i += 2)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Row(
+              children: [
+                Expanded(child: _statCell(context, stats[i])),
+                if (i + 1 < stats.length)
+                  Expanded(child: _statCell(context, stats[i + 1])),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
-  List<Widget> _buildRows(List<_StatItem> items) {
-    final rows = <Widget>[];
-
-    for (var i = 0; i < items.length; i += 2) {
-      final left = items[i];
-      final right = i + 1 < items.length ? items[i + 1] : null;
-
-      rows.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Row(
-            children: [
-              Expanded(child: _statCell(left)),
-              if (right != null) Expanded(child: _statCell(right)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return rows;
-  }
-
-  Widget _statCell(_StatItem item) {
+  Widget _statCell(BuildContext context, _StatItem item) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           item.label,
-          style: const TextStyle(
-            color: _labelColor,
+          style: TextStyle(
+            color: theme.hintColor,
             fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
@@ -281,7 +276,7 @@ class _StatsGrid extends StatelessWidget {
         Text(
           item.value,
           style: TextStyle(
-            color: item.valueColor ?? _valueColor,
+            color: item.valueColor ?? theme.colorScheme.onSurface,
             fontSize: 16,
             fontWeight: FontWeight.w600,
           ),
@@ -295,12 +290,7 @@ class _StatItem {
   final String label;
   final String value;
   final Color? valueColor;
-
-  const _StatItem({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
+  const _StatItem({required this.label, required this.value, this.valueColor});
 }
 
 // ── Order Button ──────────────────────────────────────────────────────────────
@@ -366,25 +356,29 @@ class _IndexOrderDialog extends StatefulWidget {
 class _IndexOrderDialogState extends State<_IndexOrderDialog> {
   int _qty = 1;
 
-  Color get _accentColor =>
-      widget.isBuy ? const Color(0xFF00C853) : const Color(0xFFD50000);
+  Color get _accentColor => widget.isBuy ? _gainGreen : _lossRed;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white,
+      backgroundColor: theme.dialogBackgroundColor,
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _accentColor,
                     borderRadius: BorderRadius.circular(6),
@@ -402,8 +396,9 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
                 const SizedBox(width: 10),
                 Text(
                   widget.indexData.name,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w800),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -411,15 +406,15 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
             const SizedBox(height: 6),
             Text(
               '@ ${widget.indexData.value}',
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              style: TextStyle(color: theme.hintColor, fontSize: 13),
             ),
 
             const SizedBox(height: 24),
 
-            const Text(
+            Text(
               'QUANTITY (LOTS)',
               style: TextStyle(
-                color: Color(0xFFBDBDBD),
+                color: theme.hintColor,
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1.5,
@@ -431,14 +426,17 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
               children: [
                 _QtyButton(
                   icon: Icons.remove,
-                  onTap: () { if (_qty > 1) setState(() => _qty--); },
+                  onTap: () {
+                    if (_qty > 1) setState(() => _qty--);
+                  },
                 ),
                 Expanded(
                   child: Center(
                     child: Text(
                       '$_qty',
-                      style: const TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.w700),
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
@@ -450,18 +448,22 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
             ),
 
             const SizedBox(height: 20),
-            Divider(color: Colors.grey.shade200),
+            Divider(color: theme.dividerColor),
             const SizedBox(height: 12),
 
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Lots',
-                    style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+                Text(
+                  'Lots',
+                  style: TextStyle(color: theme.hintColor, fontSize: 13),
+                ),
                 Text(
                   '$_qty × 50 units',
                   style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -476,15 +478,18 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
                     child: Container(
                       height: 46,
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
+                        color: isDark
+                            ? theme.colorScheme.surfaceContainerHighest
+                            : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       alignment: Alignment.center,
-                      child: const Text(
+                      child: Text(
                         'Cancel',
                         style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF1A1A1A)),
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface,
+                        ),
                       ),
                     ),
                   ),
@@ -498,12 +503,10 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
                         SnackBar(
                           content: Text(
                             '${widget.isBuy ? 'Bought' : 'Sold'} $_qty lot${_qty > 1 ? 's' : ''} of ${widget.indexData.name}',
+                            style: const TextStyle(color: Colors.white),
                           ),
                           backgroundColor: _accentColor,
                           behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
                         ),
                       );
                     },
@@ -517,7 +520,9 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
                       child: Text(
                         'Confirm ${widget.isBuy ? 'Buy' : 'Sell'}',
                         style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w700),
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
@@ -531,8 +536,6 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
   }
 }
 
-// ── Qty Button (shared helper) ────────────────────────────────────────────────
-
 class _QtyButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
@@ -541,16 +544,21 @@ class _QtyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: Colors.grey.shade100,
+          color: isDark
+              ? theme.colorScheme.surfaceContainerHighest
+              : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, size: 20, color: const Color(0xFF1A1A1A)),
+        child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
       ),
     );
   }

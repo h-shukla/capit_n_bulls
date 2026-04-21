@@ -1,7 +1,6 @@
-import 'package:capit_n_bulls/stock_list_tile.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import './stock.dart';
+import './stock_list_tile.dart';
 
 class SearchPage extends StatefulWidget {
   final List<StockData> stocks;
@@ -14,7 +13,6 @@ class SearchPage extends StatefulWidget {
 
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _controller = TextEditingController();
-  // Auto-focus node so keyboard opens immediately
   final FocusNode _focusNode = FocusNode();
   List<StockData> _results = [];
 
@@ -22,7 +20,6 @@ class _SearchPageState extends State<SearchPage> {
   void initState() {
     super.initState();
     _results = widget.stocks;
-    // Request focus after the first frame so keyboard pops up automatically
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -49,8 +46,12 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      // Uses scaffoldBackgroundColor from your theme
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
@@ -60,8 +61,13 @@ class _SearchPageState extends State<SearchPage> {
               child: Container(
                 height: 50,
                 decoration: BoxDecoration(
-                  color: Colors.black,
+                  // In dark mode, use the elevated surface var;
+                  // In light mode, use a light grey or the primary container
+                  color: isDark
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(10),
+                  border: isDark ? Border.all(color: theme.dividerColor) : null,
                 ),
                 child: Row(
                   children: [
@@ -71,33 +77,46 @@ class _SearchPageState extends State<SearchPage> {
                         controller: _controller,
                         focusNode: _focusNode,
                         onChanged: _onChanged,
-                        style: const TextStyle(color: Colors.white, fontSize: 16),
-                        cursorColor: Colors.white,
-                        decoration: const InputDecoration(
-                          hintText: 'Search',
-                          hintStyle: TextStyle(color: Colors.white60, fontSize: 16),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface,
+                          fontSize: 16,
+                        ),
+                        // Uses your new slate blue color for the cursor
+                        cursorColor: theme.colorScheme.primary,
+                        decoration: InputDecoration(
+                          hintText: 'Search stocks...',
+                          hintStyle: TextStyle(
+                            color: theme.hintColor,
+                            fontSize: 16,
+                          ),
                           border: InputBorder.none,
+                          enabledBorder:
+                              InputBorder.none, // Override theme borders
+                          focusedBorder: InputBorder.none,
                           isDense: true,
                           contentPadding: EdgeInsets.zero,
                         ),
                       ),
                     ),
-                    // Show clear button when typing, search icon when empty
                     ValueListenableBuilder(
                       valueListenable: _controller,
                       builder: (context, value, _) {
                         return GestureDetector(
                           onTap: value.text.isNotEmpty
                               ? () {
-                            _controller.clear();
-                            _onChanged('');
-                          }
+                                  _controller.clear();
+                                  _onChanged('');
+                                }
                               : () => Navigator.of(context).pop(),
                           child: Padding(
                             padding: const EdgeInsets.only(right: 16),
                             child: Icon(
-                              value.text.isNotEmpty ? Icons.close : Icons.search,
-                              color: Colors.white,
+                              value.text.isNotEmpty
+                                  ? Icons.close
+                                  : Icons.search,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.7,
+                              ),
                               size: 22,
                             ),
                           ),
@@ -112,19 +131,21 @@ class _SearchPageState extends State<SearchPage> {
             // Results list
             Expanded(
               child: _results.isEmpty
-                  ? const Center(
-                child: Text(
-                  'No results found',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              )
+                  ? Center(
+                      child: Text(
+                        'No results found',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.disabledColor,
+                        ),
+                      ),
+                    )
                   : ListView.builder(
-                keyboardDismissBehavior:
-                ScrollViewKeyboardDismissBehavior.onDrag,
-                itemCount: _results.length,
-                itemBuilder: (context, index) =>
-                    StockListTile(stock: _results[index]),
-              ),
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      itemCount: _results.length,
+                      itemBuilder: (context, index) =>
+                          StockListTile(stock: _results[index]),
+                    ),
             ),
           ],
         ),

@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 import './stock.dart';
+import './providers/theme_provider.dart';
 
 class IndexCard extends StatelessWidget {
   final IndexData data;
   final VoidCallback? onTap;
+
   const IndexCard({super.key, required this.data, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final color = data.isPositive ? const Color(0xFF00C853) : const Color(0xFFD50000);
+    final theme = Theme.of(context);
+
+    // Use the semantic colors from your theme setup
+    // Fallback to standard green/red if the constants aren't in scope
+    final Color gainColor = const Color(0xFF3FD47E);
+    final Color lossColor = const Color(0xFFE05252);
+    final semanticColor = data.isPositive ? gainColor : lossColor;
 
     return Expanded(
       child: GestureDetector(
@@ -17,35 +25,42 @@ class IndexCard extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 4),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white,
+            // Uses the surface color defined in your dark/light themes
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              // Adds a subtle border that matches your theme's outline
+              color: theme.dividerColor,
+              width: 1,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 data.name,
-                style: TextStyle(
+                style: theme.textTheme.labelSmall?.copyWith(
                   fontSize: 11,
-                  color: Colors.grey.shade500,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
+                  // Uses the "subtle" color from theme
                 ),
               ),
               const SizedBox(height: 5),
               Text(
                 data.value,
-                style: const TextStyle(
+                style: theme.textTheme.titleMedium?.copyWith(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF1A1A1A),
+                  // Automatically switches between _darkOnBg and black
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
               const SizedBox(height: 4),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.10),
+                  color: semanticColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -56,14 +71,14 @@ class IndexCard extends StatelessWidget {
                           ? Icons.arrow_upward_rounded
                           : Icons.arrow_downward_rounded,
                       size: 9,
-                      color: color,
+                      color: semanticColor,
                     ),
                     const SizedBox(width: 2),
                     Text(
                       data.change,
                       style: TextStyle(
                         fontSize: 10,
-                        color: color,
+                        color: semanticColor,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
