@@ -194,26 +194,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
             ),
 
-            Positioned(
-              top: 10,
-              right: 16,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const MainShell()),
-                  );
-                },
-                child: const Text(
-                  "Skip",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-            ),
+            // Positioned(
+            //   top: 10,
+            //   right: 16,
+            //   child: GestureDetector(
+            //     onTap: () {
+            //       Navigator.pushReplacement(
+            //         context,
+            //         MaterialPageRoute(builder: (_) => const MainShell()),
+            //       );
+            //     },
+            //     child: const Text(
+            //       "Skip",
+            //       style: TextStyle(
+            //         fontSize: 14,
+            //         fontWeight: FontWeight.w600,
+            //         color: Colors.black,
+            //       ),
+            //     ),
+            //   ),
+            // ),
           ],
         ),
       ),
