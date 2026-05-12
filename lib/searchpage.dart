@@ -1,3 +1,4 @@
+import 'package:capit_n_bulls/index_detail_sheet.dart';
 import 'package:capit_n_bulls/providers/watchlist_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,12 +18,15 @@ class SearchPage extends ConsumerStatefulWidget {
 class _SearchPageState extends ConsumerState<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  List<dynamic> _results = []; // Can be StockData or IndexData
+
+  List<dynamic> _results = []; // StockData or IndexData
 
   @override
   void initState() {
     super.initState();
+
     _results = [...widget.stocks, ...widget.indices];
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -41,12 +45,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         _results = [...widget.stocks, ...widget.indices];
       } else {
         final lowerQuery = query.toLowerCase();
+
         final filteredStocks = widget.stocks
             .where((s) => s.symbol.toLowerCase().contains(lowerQuery))
             .toList();
+
         final filteredIndices = widget.indices
             .where((i) => i.name.toLowerCase().contains(lowerQuery))
             .toList();
+
         _results = [...filteredStocks, ...filteredIndices];
       }
     });
@@ -56,6 +63,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+
     final watchlistAsync = ref.watch(watchlistProvider);
     final watchlistSymbols = watchlistAsync.value ?? {};
 
@@ -79,6 +87,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 child: Row(
                   children: [
                     const SizedBox(width: 16),
+
                     Expanded(
                       child: TextField(
                         controller: _controller,
@@ -103,6 +112,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                         ),
                       ),
                     ),
+
                     ValueListenableBuilder(
                       valueListenable: _controller,
                       builder: (context, value, _) {
@@ -133,7 +143,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               ),
             ),
 
-            // ── Results list ──────────────────────────────────────────────
+            // ── Results ──────────────────────────────────────────────────
             Expanded(
               child: _results.isEmpty
                   ? Center(
@@ -150,10 +160,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                       itemCount: _results.length,
                       itemBuilder: (context, index) {
                         final result = _results[index];
-                        final isStock = result is StockData;
 
-                        if (isStock) {
-                          final stock = result as StockData;
+                        // ── STOCK ────────────────────────────────────────
+                        if (result is StockData) {
+                          final stock = result;
+
                           final isInWatchlist = watchlistSymbols.contains(
                             stock.symbol,
                           );
@@ -161,11 +172,13 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                           return Row(
                             children: [
                               Expanded(child: StockListTile(stock: stock)),
+
                               GestureDetector(
                                 onTap: () async {
                                   final notifier = ref.read(
                                     watchlistProvider.notifier,
                                   );
+
                                   if (isInWatchlist) {
                                     await notifier.remove(stock.symbol);
                                   } else {
@@ -198,9 +211,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                               ),
                             ],
                           );
-                        } else {
-                          final index = result as IndexData;
-                          return Padding(
+                        }
+
+                        // ── INDEX ────────────────────────────────────────
+                        final indexData = result as IndexData;
+
+                        return GestureDetector(
+                          onTap: () =>
+                              IndexDetailSheet.show(context, indexData),
+                          child: Padding(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 12,
@@ -214,36 +233,41 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        index.name,
+                                        indexData.name,
                                         style: theme.textTheme.bodyLarge
                                             ?.copyWith(
                                               fontWeight: FontWeight.w600,
                                             ),
                                       ),
+
                                       const SizedBox(height: 4),
+
                                       Text(
-                                        'Open: ${index.open} | High: ${index.high} | Low: ${index.low}',
+                                        'Open: ${indexData.open} | High: ${indexData.high} | Low: ${indexData.low}',
                                         style: theme.textTheme.bodySmall,
                                       ),
                                     ],
                                   ),
                                 ),
+
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
-                                      index.value,
+                                      indexData.value,
                                       style: theme.textTheme.bodyLarge
                                           ?.copyWith(
                                             fontWeight: FontWeight.w600,
                                           ),
                                     ),
+
                                     const SizedBox(height: 4),
+
                                     Text(
-                                      index.change,
+                                      indexData.change,
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
-                                            color: index.isPositive
+                                            color: indexData.isPositive
                                                 ? Colors.green
                                                 : Colors.red,
                                           ),
@@ -252,8 +276,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                                 ),
                               ],
                             ),
-                          );
-                        }
+                          ),
+                        );
                       },
                     ),
             ),
