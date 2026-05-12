@@ -89,7 +89,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
       'SEP',
       'OCT',
       'NOV',
-      'DEC'
+      'DEC',
     ];
     return months[month - 1];
   }
@@ -134,9 +134,11 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     // Keys in price_feed look like "BANKNIFTY26MAYFUT", "NIFTY26MAYFUT" etc.
     // We check BANKNIFTY first (more specific) so it doesn't get caught by
     // the NIFTY check. Only match futures contracts (ending with FUT).
-    // Also filter to only current month futures.
+    // Also filter to current and next month futures.
     final now = DateTime.now();
     final currentMonthCode = _getMonthCode(now.month);
+    final nextMonth = now.month == 12 ? 1 : now.month + 1;
+    final nextMonthCode = _getMonthCode(nextMonth);
 
     for (final entry in priceFeed.entries) {
       final key = entry.key;
@@ -152,8 +154,10 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
 
       if (matchedName == null) continue;
 
-      // Only add if it's the current month contract
-      if (!matchedName.contains(currentMonthCode)) continue;
+      // Only add if it's the current or next month contract
+      if (!matchedName.contains(currentMonthCode) &&
+          !matchedName.contains(nextMonthCode))
+        continue;
 
       final ohlc = feedEntry['ohlc'] as Map<String, dynamic>? ?? {};
       final double lastPrice =
@@ -267,7 +271,8 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     Navigator.of(context)
         .push(
           PageRouteBuilder(
-            pageBuilder: (_, _, _) => SearchPage(stocks: allStocks),
+            pageBuilder: (_, _, _) =>
+                SearchPage(stocks: allStocks, indices: _indices),
             transitionsBuilder: (_, animation, _, child) {
               final tween = Tween(
                 begin: const Offset(0, 1),
@@ -352,6 +357,11 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
               if (_indices.isNotEmpty) ...[
                 Row(
                   children: _indices
+                      .where((idx) {
+                        final now = DateTime.now();
+                        final currentMonthCode = _getMonthCode(now.month);
+                        return idx.name.contains(currentMonthCode);
+                      })
                       .map(
                         (idx) => IndexCard(
                           data: idx,

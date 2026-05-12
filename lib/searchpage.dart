@@ -6,8 +6,9 @@ import './stock_list_tile.dart';
 
 class SearchPage extends ConsumerStatefulWidget {
   final List<StockData> stocks;
+  final List<IndexData> indices;
 
-  const SearchPage({super.key, required this.stocks});
+  const SearchPage({super.key, required this.stocks, this.indices = const []});
 
   @override
   ConsumerState<SearchPage> createState() => _SearchPageState();
@@ -16,12 +17,12 @@ class SearchPage extends ConsumerStatefulWidget {
 class _SearchPageState extends ConsumerState<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  List<StockData> _results = [];
+  List<dynamic> _results = []; // Can be StockData or IndexData
 
   @override
   void initState() {
     super.initState();
-    _results = widget.stocks;
+    _results = [...widget.stocks, ...widget.indices];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -37,11 +38,16 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   void _onChanged(String query) {
     setState(() {
       if (query.isEmpty) {
-        _results = widget.stocks;
+        _results = [...widget.stocks, ...widget.indices];
       } else {
-        _results = widget.stocks
-            .where((s) => s.symbol.toLowerCase().contains(query.toLowerCase()))
+        final lowerQuery = query.toLowerCase();
+        final filteredStocks = widget.stocks
+            .where((s) => s.symbol.toLowerCase().contains(lowerQuery))
             .toList();
+        final filteredIndices = widget.indices
+            .where((i) => i.name.toLowerCase().contains(lowerQuery))
+            .toList();
+        _results = [...filteredStocks, ...filteredIndices];
       }
     });
   }
@@ -143,51 +149,111 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       itemCount: _results.length,
                       itemBuilder: (context, index) {
-                        final stock = _results[index];
-                        final isInWatchlist = watchlistSymbols.contains(
-                          stock.symbol,
-                        );
+                        final result = _results[index];
+                        final isStock = result is StockData;
 
-                        return Row(
-                          children: [
-                            Expanded(child: StockListTile(stock: stock)),
-                            GestureDetector(
-                              onTap: () async {
-                                final notifier = ref.read(
-                                  watchlistProvider.notifier,
-                                );
-                                if (isInWatchlist) {
-                                  await notifier.remove(stock.symbol);
-                                } else {
-                                  await notifier.add(stock.symbol);
-                                }
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                ),
-                                child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  child: isInWatchlist
-                                      ? Icon(
-                                          Icons.check_circle,
-                                          key: const ValueKey('added'),
-                                          color: theme.colorScheme.primary,
-                                          size: 26,
-                                        )
-                                      : Icon(
-                                          Icons.add_circle_outline,
-                                          key: const ValueKey('add'),
-                                          color: isDark
-                                              ? Colors.white54
-                                              : Colors.black45,
-                                          size: 26,
-                                        ),
+                        if (isStock) {
+                          final stock = result as StockData;
+                          final isInWatchlist = watchlistSymbols.contains(
+                            stock.symbol,
+                          );
+
+                          return Row(
+                            children: [
+                              Expanded(child: StockListTile(stock: stock)),
+                              GestureDetector(
+                                onTap: () async {
+                                  final notifier = ref.read(
+                                    watchlistProvider.notifier,
+                                  );
+                                  if (isInWatchlist) {
+                                    await notifier.remove(stock.symbol);
+                                  } else {
+                                    await notifier.add(stock.symbol);
+                                  }
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 200),
+                                    child: isInWatchlist
+                                        ? Icon(
+                                            Icons.check_circle,
+                                            key: const ValueKey('added'),
+                                            color: theme.colorScheme.primary,
+                                            size: 26,
+                                          )
+                                        : Icon(
+                                            Icons.add_circle_outline,
+                                            key: const ValueKey('add'),
+                                            color: isDark
+                                                ? Colors.white54
+                                                : Colors.black45,
+                                            size: 26,
+                                          ),
+                                  ),
                                 ),
                               ),
+                            ],
+                          );
+                        } else {
+                          final index = result as IndexData;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
                             ),
-                          ],
-                        );
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        index.name,
+                                        style: theme.textTheme.bodyLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Open: ${index.open} | High: ${index.high} | Low: ${index.low}',
+                                        style: theme.textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      index.value,
+                                      style: theme.textTheme.bodyLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      index.change,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: index.isPositive
+                                                ? Colors.green
+                                                : Colors.red,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }
                       },
                     ),
             ),
