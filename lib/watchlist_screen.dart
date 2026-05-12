@@ -1,7 +1,11 @@
 import 'package:capit_n_bulls/index_detail_sheet.dart';
 import 'package:capit_n_bulls/searchpage.dart';
+import 'package:capit_n_bulls/providers/watchlist_provider.dart';
+import 'package:capit_n_bulls/providers/live_stocks_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import './stock.dart';
@@ -14,39 +18,36 @@ const String kWsUrl = 'ws://$kServerHost:8765/ws/live-prices';
 const String kNamesUrl = 'http://$kServerHost:8765/instruments/names';
 // ─────────────────────────────────────────────────────────────────────────────
 
-class WatchlistScreen extends StatefulWidget {
+class WatchlistScreen extends ConsumerStatefulWidget {
   const WatchlistScreen({super.key});
 
   @override
-  State<WatchlistScreen> createState() => _WatchlistScreenState();
+  ConsumerState<WatchlistScreen> createState() => _WatchlistScreenState();
 }
 
-class _WatchlistScreenState extends State<WatchlistScreen> {
-  final List<IndexData> _indices = const [];
+class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
+  final List<IndexData> _indices = [];
 
-  /// token → StockData  (all tokens the backend ever sends)
-  final Map<int, StockData> _stockMap = {};
-
-  /// token → {symbol, exchange}  — fetched once from REST, falls back to token string
   final Map<int, ({String symbol, String exchange})> _tokenMeta = {};
 
   bool _awaitingFirstTick = true;
 
-  // debug
   static const bool _debug = true;
   String _debugMsg = 'Connecting…';
   bool _showDebugBanner = true;
 
   late WebSocketChannel _channel;
+  StreamSubscription? _wsSubscription;
+  Timer? _bannerTimer;
+  bool _isDisposing = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchInstrumentNames(); // fire-and-forget; WS works even if this fails
+    _fetchInstrumentNames();
     _connectWebSocket();
   }
 
-  // ── REST: fetch token→symbol map from backend ─────────────────────────────
   Future<void> _fetchInstrumentNames() async {
     try {
       final res = await http
@@ -55,7 +56,6 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
       if (res.statusCode == 200) {
         final Map<String, dynamic> body =
             jsonDecode(res.body) as Map<String, dynamic>;
-        // Expected shape: {"492033": {"symbol": "SBIN", "exchange": "NSE"}, …}
         body.forEach((key, value) {
           final token = int.tryParse(key);
           if (token != null && value is Map<String, dynamic>) {
@@ -65,68 +65,42 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
             );
           }
         });
-        // Refresh any already-received stocks with proper names
         if (mounted) setState(() {});
       }
-    } catch (_) {
-      // Names endpoint not available — will use token-string fallback
-    }
+    } catch (_) {}
   }
 
-  // ── Resolve display name for a token ─────────────────────────────────────
-  String _symbol(int token) => _tokenMeta[token]?.symbol ?? 'TOKEN-$token';
-  String _exchange(int token) => _tokenMeta[token]?.exchange ?? 'NSE';
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted || _isDisposing) return;
+    setState(fn);
+  }
 
-  // ── WebSocket ─────────────────────────────────────────────────────────────
   void _connectWebSocket() {
     _channel = WebSocketChannel.connect(Uri.parse(kWsUrl));
-    _channel.stream.listen(
+    _wsSubscription = _channel.stream.listen(
       _onMessage,
       onError: (e) {
         debugPrint('WS error: $e');
-        if (mounted) setState(() => _debugMsg = 'WS error: $e');
+        _safeSetState(() => _debugMsg = 'WS error: $e');
       },
       onDone: () {
         debugPrint('WS closed');
-        if (mounted) setState(() => _debugMsg = 'WS closed');
+        if (_isDisposing) return;
+        _safeSetState(() => _debugMsg = 'WS closed');
       },
+      cancelOnError: true,
     );
-  }
-
-  Map<String, dynamic>? _extractFeed(Map<String, dynamic> decoded) {
-    if (decoded.containsKey('price_feed')) {
-      final inner = decoded['price_feed'];
-      if (inner is Map<String, dynamic>) return inner;
-    }
-    if (decoded.isNotEmpty && int.tryParse(decoded.keys.first) != null) {
-      return decoded;
-    }
-    return null;
   }
 
   void _onMessage(dynamic raw) {
     final Map<String, dynamic> decoded;
     try {
       decoded = jsonDecode(raw as String) as Map<String, dynamic>;
-      print(decoded);
     } catch (e) {
       if (mounted) setState(() => _debugMsg = 'JSON parse error: $e');
       return;
     }
 
-    // ── Parse mapper: token_string → symbol ─────────────────────────────────
-    final mapper = decoded['mapper'];
-    if (mapper is Map<String, dynamic>) {
-      mapper.forEach((tokenStr, symbol) {
-        final token = int.tryParse(tokenStr);
-        if (token != null && symbol is String) {
-          _tokenMeta[token] = (symbol: symbol, exchange: 'NSE');
-        }
-      });
-    }
-    // ────────────────────────────────────────────────────────────────────────
-
-    // ── Parse price_feed: symbol_string → data ───────────────────────────────
     final priceFeed = decoded['price_feed'];
     if (priceFeed is! Map<String, dynamic>) {
       if (mounted) {
@@ -137,13 +111,67 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
       return;
     }
 
-    bool didChange = false;
-
+    // ── Extract NIFTY / BANKNIFTY by key prefix matching ─────────────────
+    // Keys in price_feed look like "BANKNIFTY26MAYFUT", "NIFTY26MAYFUT" etc.
+    // We check BANKNIFTY first (more specific) so it doesn't get caught by
+    // the NIFTY check.
     for (final entry in priceFeed.entries) {
+      final key = entry.key as String;
       if (entry.value is! Map<String, dynamic>) continue;
       final feedEntry = entry.value as Map<String, dynamic>;
 
-      // Use instrument_token from inside the feed entry as the key
+      String? matchedName;
+      if (key.startsWith('BANKNIFTY')) {
+        matchedName = 'BANKNIFTY';
+      } else if (key.startsWith('NIFTY')) {
+        matchedName = 'NIFTY';
+      }
+
+      if (matchedName == null) continue;
+
+      final ohlc = feedEntry['ohlc'] as Map<String, dynamic>? ?? {};
+      final double lastPrice =
+          (feedEntry['last_price'] as num?)?.toDouble() ?? 0.0;
+      final double change = (feedEntry['change'] as num?)?.toDouble() ?? 0.0;
+      final double open = (ohlc['open'] as num?)?.toDouble() ?? 0.0;
+      final double high = (ohlc['high'] as num?)?.toDouble() ?? 0.0;
+      final double low = (ohlc['low'] as num?)?.toDouble() ?? 0.0;
+      final double prevClose = (ohlc['close'] as num?)?.toDouble() ?? 0.0;
+
+      final indexData = IndexData(
+        name: matchedName,
+        value: lastPrice.toStringAsFixed(2),
+        change: '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}%',
+        isPositive: change >= 0,
+        open: open.toStringAsFixed(2),
+        high: high.toStringAsFixed(2),
+        low: low.toStringAsFixed(2),
+        prevClose: prevClose.toStringAsFixed(2),
+      );
+
+      final existingIdx = _indices.indexWhere((i) => i.name == matchedName);
+      if (existingIdx == -1) {
+        _indices.add(indexData);
+      } else {
+        _indices[existingIdx] = indexData;
+      }
+    }
+
+    // ── Collect all stock updates into a batch ────────────────────────────
+    final Map<int, StockData> batch = {};
+    final notifier = ref.read(liveStocksProvider.notifier);
+    final currentStockMap = ref.read(liveStocksProvider);
+    bool didChange = false;
+
+    for (final entry in priceFeed.entries) {
+      final key = entry.key as String;
+
+      // Skip index futures — already handled above
+      if (key.startsWith('BANKNIFTY') || key.startsWith('NIFTY')) continue;
+
+      if (entry.value is! Map<String, dynamic>) continue;
+      final feedEntry = entry.value as Map<String, dynamic>;
+
       final tokenFromFeed = feedEntry['instrument_token'];
       final int token;
       if (tokenFromFeed is int) {
@@ -151,20 +179,16 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
       } else if (tokenFromFeed is double) {
         token = tokenFromFeed.toInt();
       } else {
-        // Fallback: hash the symbol string
         token = entry.key.hashCode;
       }
 
-      // Symbol: prefer mapper lookup, fallback to the feed key (e.g. "M&M")
       final symbol = _tokenMeta[token]?.symbol ?? entry.key;
-      final exchange = feedEntry['tradable'] == false ? 'BSE' : 'NSE';
+      const exchange = 'NSE';
 
-      // Update tokenMeta if not already set
       _tokenMeta.putIfAbsent(token, () => (symbol: symbol, exchange: exchange));
 
-      final prev = _stockMap[token];
-
-      _stockMap[token] = StockData.fromWsFeed(
+      final prev = currentStockMap[token];
+      batch[token] = StockData.fromWsFeed(
         token: token,
         map: feedEntry,
         symbol: symbol,
@@ -173,57 +197,77 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
         prevLowerCircuit: prev?.lowerCircuit,
         prevWeek52High: prev?.week52High,
         prevWeek52Low: prev?.week52Low,
+        companyName: prev?.companyName,
       );
 
       didChange = true;
     }
 
+    // ── Push the whole batch to the provider in one shot ─────────────────
+    if (batch.isNotEmpty) {
+      notifier.updateBatch(batch);
+    }
+
     if (!mounted) return;
     if (didChange) {
+      final stockCount = currentStockMap.length + batch.length;
       final wasAwaiting = _awaitingFirstTick;
       setState(() {
         _awaitingFirstTick = false;
-        _debugMsg =
-            '✅ Live | ${_stockMap.length} stocks | '
-            'tokens: ${_stockMap.keys.take(4).join(', ')}…';
+        _debugMsg = '✅ Live | $stockCount stocks | ${_indices.length} indices';
       });
       if (wasAwaiting) {
-        Future.delayed(const Duration(seconds: 5), () {
-          if (mounted) setState(() => _showDebugBanner = false);
+        _bannerTimer?.cancel();
+        _bannerTimer = Timer(const Duration(seconds: 5), () {
+          _safeSetState(() => _showDebugBanner = false);
         });
       }
     }
   }
 
-  List<StockData> get _stocks => _stockMap.values.toList();
-
   void _openSearch() {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => SearchPage(stocks: _stocks),
-        transitionsBuilder: (_, animation, __, child) {
-          final tween = Tween(
-            begin: const Offset(0, 1),
-            end: Offset.zero,
-          ).chain(CurveTween(curve: Curves.easeOutCubic));
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 300),
-      ),
-    );
+    final allStocks = ref.read(liveStocksProvider).values.toList();
+    Navigator.of(context)
+        .push(
+          PageRouteBuilder(
+            pageBuilder: (_, _, _) => SearchPage(stocks: allStocks),
+            transitionsBuilder: (_, animation, _, child) {
+              final tween = Tween(
+                begin: const Offset(0, 1),
+                end: Offset.zero,
+              ).chain(CurveTween(curve: Curves.easeOutCubic));
+              return SlideTransition(
+                position: animation.drive(tween),
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        )
+        .then((_) {
+          if (mounted) setState(() {});
+        });
   }
 
   @override
   void dispose() {
-    _channel.sink.close();
+    _isDisposing = true;
+    _bannerTimer?.cancel();
+    _wsSubscription?.cancel();
+    _channel.sink.close(1000, 'Navigating away');
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final watchlistAsync = ref.watch(watchlistProvider);
+    final watchlistSymbols = watchlistAsync.value ?? {};
+
+    final stockMap = ref.watch(liveStocksProvider);
+    final watchedStocks = stockMap.values
+        .where((s) => watchlistSymbols.contains(s.symbol))
+        .toList();
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final stripBg = isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade200;
     final searchBg = isDark ? const Color(0xFF272727) : Colors.black;
@@ -311,16 +355,45 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
           ),
         ),
 
-        // ── Stock list ─────────────────────────────────────────────────────
+        // ── Watchlist stock list ───────────────────────────────────────────
         Expanded(
           child: _awaitingFirstTick
               ? const Center(child: CircularProgressIndicator())
+              : watchedStocks.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.bookmark_border,
+                        size: 48,
+                        color: isDark ? Colors.white24 : Colors.black26,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Your watchlist is empty',
+                        style: TextStyle(
+                          color: isDark ? Colors.white38 : Colors.black38,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Search for stocks and tap + to add them',
+                        style: TextStyle(
+                          color: isDark ? Colors.white24 : Colors.black26,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
               : ListView.builder(
-                  itemCount: _stocks.length,
+                  itemCount: watchedStocks.length,
                   itemBuilder: (_, i) => Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      StockListTile(stock: _stocks[i]),
+                      StockListTile(stock: watchedStocks[i]),
                       const Divider(height: 1, indent: 16, endIndent: 16),
                     ],
                   ),

@@ -1,17 +1,19 @@
+import 'package:capit_n_bulls/providers/watchlist_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import './stock.dart';
 import './stock_list_tile.dart';
 
-class SearchPage extends StatefulWidget {
+class SearchPage extends ConsumerStatefulWidget {
   final List<StockData> stocks;
 
   const SearchPage({super.key, required this.stocks});
 
   @override
-  State<SearchPage> createState() => _SearchPageState();
+  ConsumerState<SearchPage> createState() => _SearchPageState();
 }
 
-class _SearchPageState extends State<SearchPage> {
+class _SearchPageState extends ConsumerState<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   List<StockData> _results = [];
@@ -48,21 +50,20 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final watchlistAsync = ref.watch(watchlistProvider);
+    final watchlistSymbols = watchlistAsync.value ?? {};
 
     return Scaffold(
-      // Uses scaffoldBackgroundColor from your theme
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
-            // Search bar at top
+            // ── Search bar ────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
               child: Container(
                 height: 50,
                 decoration: BoxDecoration(
-                  // In dark mode, use the elevated surface var;
-                  // In light mode, use a light grey or the primary container
                   color: isDark
                       ? theme.colorScheme.surfaceContainerHighest
                       : Colors.grey.shade100,
@@ -81,7 +82,6 @@ class _SearchPageState extends State<SearchPage> {
                           color: theme.colorScheme.onSurface,
                           fontSize: 16,
                         ),
-                        // Uses your new slate blue color for the cursor
                         cursorColor: theme.colorScheme.primary,
                         decoration: InputDecoration(
                           hintText: 'Search stocks...',
@@ -90,8 +90,7 @@ class _SearchPageState extends State<SearchPage> {
                             fontSize: 16,
                           ),
                           border: InputBorder.none,
-                          enabledBorder:
-                              InputBorder.none, // Override theme borders
+                          enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
                           isDense: true,
                           contentPadding: EdgeInsets.zero,
@@ -128,7 +127,7 @@ class _SearchPageState extends State<SearchPage> {
               ),
             ),
 
-            // Results list
+            // ── Results list ──────────────────────────────────────────────
             Expanded(
               child: _results.isEmpty
                   ? Center(
@@ -143,8 +142,53 @@ class _SearchPageState extends State<SearchPage> {
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       itemCount: _results.length,
-                      itemBuilder: (context, index) =>
-                          StockListTile(stock: _results[index]),
+                      itemBuilder: (context, index) {
+                        final stock = _results[index];
+                        final isInWatchlist = watchlistSymbols.contains(
+                          stock.symbol,
+                        );
+
+                        return Row(
+                          children: [
+                            Expanded(child: StockListTile(stock: stock)),
+                            GestureDetector(
+                              onTap: () async {
+                                final notifier = ref.read(
+                                  watchlistProvider.notifier,
+                                );
+                                if (isInWatchlist) {
+                                  await notifier.remove(stock.symbol);
+                                } else {
+                                  await notifier.add(stock.symbol);
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: isInWatchlist
+                                      ? Icon(
+                                          Icons.check_circle,
+                                          key: const ValueKey('added'),
+                                          color: theme.colorScheme.primary,
+                                          size: 26,
+                                        )
+                                      : Icon(
+                                          Icons.add_circle_outline,
+                                          key: const ValueKey('add'),
+                                          color: isDark
+                                              ? Colors.white54
+                                              : Colors.black45,
+                                          size: 26,
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
             ),
           ],

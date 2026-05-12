@@ -1,6 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
-// ─── Model ────────────────────────────────────────────────────────────────────
+import '../providers/auth_provider.dart';
+
+/// ─────────────────────────────────────────────────────────
+/// MODEL
+/// ─────────────────────────────────────────────────────────
 
 class TradeBookEntry {
   final DateTime tradeDateTime;
@@ -9,7 +16,9 @@ class TradeBookEntry {
   final String action;
   final int quantity;
   final double tradePrice;
-  final List<double> executionPrices;
+  final String exchange;
+  final double? pnl;
+  final String leg;
 
   const TradeBookEntry({
     required this.tradeDateTime,
@@ -18,114 +27,136 @@ class TradeBookEntry {
     required this.action,
     required this.quantity,
     required this.tradePrice,
-    this.executionPrices = const [],
+    required this.exchange,
+    required this.leg,
+    this.pnl,
   });
 
-  bool get hasMultipleFills => executionPrices.length > 1;
+  factory TradeBookEntry.fromJson(Map<String, dynamic> json) {
+    // Parse timestamp
+    final rawDate =
+        json['timestamp']?.toString() ??
+        json['closed_at']?.toString() ??
+        json['updated_at']?.toString() ??
+        json['trade_date_time']?.toString() ??
+        '';
 
-  double get avgPrice {
-    if (!hasMultipleFills) return tradePrice;
-    return executionPrices.reduce((a, b) => a + b) / executionPrices.length;
+    final dt = DateTime.tryParse(rawDate)?.toLocal() ?? DateTime.now();
+
+    // Symbol
+    final symbol =
+        json['contract_name']?.toString() ??
+        json['tradingsymbol']?.toString() ??
+        '-';
+
+    // Side
+    final side =
+        json['side']?.toString() ??
+        json['action']?.toString() ??
+        json['transaction_type']?.toString() ??
+        'BUY';
+
+    // Quantity
+    final qty =
+        (json['qty'] as num?)?.toInt() ??
+        int.tryParse(json['quantity']?.toString() ?? '') ??
+        int.tryParse(json['lot_size']?.toString() ?? '') ??
+        0;
+
+    // IMPORTANT FIX:
+    // Use backend-provided exact leg price
+    final price = (json['price'] as num?)?.toDouble() ?? 0.0;
+
+    // Exchange
+    final exchange = json['exchange']?.toString() ?? '';
+
+    // Leg
+    final leg = json['leg']?.toString() ?? '';
+
+    // IMPORTANT FIX:
+    // realised_pnl only exists on EXIT leg
+    final pnl = json['realised_pnl'] != null
+        ? double.tryParse(json['realised_pnl'].toString())
+        : null;
+
+    return TradeBookEntry(
+      tradeDateTime: dt,
+      symbolName: symbol,
+      symbolCode: symbol,
+      action: side.toUpperCase(),
+      quantity: qty,
+      tradePrice: price,
+      exchange: exchange,
+      leg: leg,
+      pnl: pnl,
+    );
   }
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────
+/// API SERVICE
+/// ─────────────────────────────────────────────────────────
 
-final List<TradeBookEntry> _mockTrades = [
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 9, 45, 12, 340),
-    symbolName: 'AAPL',
-    symbolCode: 'AAPL',
-    action: 'Buy',
-    quantity: 20,
-    tradePrice: 165.20,
-    executionPrices: [163.50, 165.20, 167.10],
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 9, 45, 33, 870),
-    symbolName: 'TSLA',
-    symbolCode: 'TSLA',
-    action: 'Sell',
-    quantity: 12,
-    tradePrice: 182.50,
-    executionPrices: [182.50, 183.80],
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 9, 45, 55, 120),
-    symbolName: 'SBIN',
-    symbolCode: 'SBIN',
-    action: 'Buy',
-    quantity: 3,
-    tradePrice: 67.60,
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 9, 46, 4, 210),
-    symbolName: 'GOOGLE',
-    symbolCode: 'GOOG',
-    action: 'Buy',
-    quantity: 6,
-    tradePrice: 175.80,
-    executionPrices: [174.20, 175.80, 176.50],
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 9, 46, 28, 990),
-    symbolName: 'HDFCBANK',
-    symbolCode: 'HDFCBNK',
-    action: 'Sell',
-    quantity: 14,
-    tradePrice: 1540.00,
-    executionPrices: [1538.00, 1540.00],
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 9, 47, 1, 450),
-    symbolName: 'RELIANCE',
-    symbolCode: 'RELIANCE',
-    action: 'Sell',
-    quantity: 20,
-    tradePrice: 457.60,
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 10, 12, 8, 660),
-    symbolName: 'INFY',
-    symbolCode: 'INFY',
-    action: 'Buy',
-    quantity: 8,
-    tradePrice: 210.00,
-    executionPrices: [209.00, 210.00, 211.50],
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 10, 30, 44, 230),
-    symbolName: 'TCS',
-    symbolCode: 'TCS',
-    action: 'Sell',
-    quantity: 5,
-    tradePrice: 330.50,
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 11, 5, 19, 780),
-    symbolName: 'WIPRO',
-    symbolCode: 'WIPRO',
-    action: 'Buy',
-    quantity: 15,
-    tradePrice: 88.75,
-    executionPrices: [87.90, 88.75],
-  ),
-  TradeBookEntry(
-    tradeDateTime: DateTime(2025, 6, 12, 11, 45, 36, 100),
-    symbolName: 'ICICI',
-    symbolCode: 'ICICI',
-    action: 'Buy',
-    quantity: 4,
-    tradePrice: 320.00,
-  ),
-];
+class TradebookApi {
+  static const String baseUrl = 'http://69.62.75.117:8765';
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
+  static Future<List<TradeBookEntry>> fetchTrades(String userId) async {
+    final url = Uri.parse('$baseUrl/tradebook/$userId');
+
+    final response = await http
+        .get(url, headers: {'Content-Type': 'application/json'})
+        .timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed: ${response.statusCode}');
+    }
+
+    final decoded = jsonDecode(response.body);
+
+    // DEBUG PRINT
+    debugPrint("TRADEBOOK API RESPONSE:");
+    debugPrint(const JsonEncoder.withIndent('  ').convert(decoded));
+
+    // API returns { trades: [...] }
+    if (decoded is Map && decoded['trades'] is List) {
+      return (decoded['trades'] as List)
+          .map((e) => TradeBookEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    // Fallback: top-level list
+    if (decoded is List) {
+      return decoded
+          .map((e) => TradeBookEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    // Fallback: data key
+    if (decoded is Map && decoded['data'] is List) {
+      return (decoded['data'] as List)
+          .map((e) => TradeBookEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    return [];
+  }
+}
+
+/// ─────────────────────────────────────────────────────────
+/// PROVIDER
+/// ─────────────────────────────────────────────────────────
+
+final tradebookProvider = FutureProvider<List<TradeBookEntry>>((ref) async {
+  final userId = ref.read(authProvider.notifier).userId ?? 'unknown';
+  return TradebookApi.fetchTrades(userId);
+});
+
+/// ─────────────────────────────────────────────────────────
+/// FORMATTERS
+/// ─────────────────────────────────────────────────────────
 
 String _formatTimeShort(DateTime dt) {
-  final h = dt.hour.toString().padLeft(2, '0');
-  final m = dt.minute.toString().padLeft(2, '0');
-  return '$h:$m';
+  return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 }
 
 String _formatDateFull(DateTime dt) {
@@ -143,6 +174,7 @@ String _formatDateFull(DateTime dt) {
     'Nov',
     'Dec',
   ];
+
   return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
 }
 
@@ -151,14 +183,17 @@ String _formatTimeFull(DateTime dt) {
   final m = dt.minute.toString().padLeft(2, '0');
   final s = dt.second.toString().padLeft(2, '0');
   final ms = dt.millisecond.toString().padLeft(3, '0');
+
   return '$h:$m:$s.$ms';
 }
 
-// ─── Popup ────────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────
+/// DETAILS POPUP
+/// ─────────────────────────────────────────────────────────
 
 void _showTradeDetail(BuildContext context, TradeBookEntry entry) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
-  final isBuy = entry.action == 'Buy';
+  final isBuy = entry.action.toLowerCase() == 'buy';
   final totalValue = entry.tradePrice * entry.quantity;
 
   showModalBottomSheet(
@@ -167,16 +202,14 @@ void _showTradeDetail(BuildContext context, TradeBookEntry entry) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-    builder: (context) {
+    builder: (_) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 36),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header ──
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: Column(
@@ -190,16 +223,16 @@ void _showTradeDetail(BuildContext context, TradeBookEntry entry) {
                           color: isDark ? Colors.white : Colors.black,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        entry.symbolCode,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark
-                              ? Colors.grey.shade500
-                              : Colors.grey.shade400,
+                      if (entry.exchange.isNotEmpty)
+                        Text(
+                          entry.exchange,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade600,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -209,133 +242,71 @@ void _showTradeDetail(BuildContext context, TradeBookEntry entry) {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
                     color: isBuy
-                        ? (isDark
-                              ? const Color(0xFF1B5E20).withValues(alpha: 0.3)
-                              : const Color(0xFFE8F5E9))
-                        : (isDark
-                              ? const Color(0xFFB71C1C).withValues(alpha: 0.3)
-                              : const Color(0xFFFFEBEE)),
-                    borderRadius: BorderRadius.circular(5),
+                        ? Colors.green.withOpacity(0.15)
+                        : Colors.red.withOpacity(0.15),
                   ),
                   child: Text(
-                    entry.action,
+                    entry.action.toUpperCase(),
                     style: TextStyle(
-                      fontSize: 12,
+                      color: isBuy ? Colors.green : Colors.red,
                       fontWeight: FontWeight.w700,
-                      color: isBuy
-                          ? const Color(0xFF81C784)
-                          : const Color(0xFFE57373),
                     ),
                   ),
                 ),
               ],
             ),
 
-            const SizedBox(height: 16),
-            Divider(
-              height: 1,
-              thickness: 1,
-              color: isDark ? Colors.white10 : Colors.grey.shade200,
-            ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
             _DetailRow(
               label: 'Date',
               value: _formatDateFull(entry.tradeDateTime),
             ),
+
             const SizedBox(height: 12),
+
             _DetailRow(
-              label: 'Exact time',
+              label: 'Exact Time',
               value: _formatTimeFull(entry.tradeDateTime),
               valueMono: true,
             ),
-            const SizedBox(height: 12),
-            Divider(
-              height: 1,
-              thickness: 1,
-              color: isDark ? Colors.white10 : Colors.grey.shade200,
-            ),
-            const SizedBox(height: 12),
-
-            if (entry.hasMultipleFills) ...[
-              _DetailRow(
-                label: 'Avg price',
-                value: '₹${entry.avgPrice.toStringAsFixed(2)}',
-                valueBold: true,
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.03)
-                      : Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: isDark ? Colors.white10 : Colors.grey.shade200,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Fill breakdown  ·  ${entry.executionPrices.length} executions',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: isDark
-                            ? Colors.grey.shade500
-                            : Colors.grey.shade500,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    ...entry.executionPrices.asMap().entries.map((e) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Fill ${e.key + 1}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.grey.shade400
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                            Text(
-                              '₹${e.value.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-            ] else ...[
-              _DetailRow(
-                label: 'Trade price',
-                value: '₹${entry.tradePrice.toStringAsFixed(2)}',
-              ),
-            ],
 
             const SizedBox(height: 12),
-            _DetailRow(label: 'Quantity', value: '${entry.quantity}'),
-            const SizedBox(height: 12),
+
             _DetailRow(
-              label: 'Total value',
+              label: 'Trade Price',
+              value: '₹${entry.tradePrice.toStringAsFixed(2)}',
+            ),
+
+            const SizedBox(height: 12),
+
+            _DetailRow(label: 'Quantity', value: '${entry.quantity}'),
+
+            const SizedBox(height: 12),
+
+            _DetailRow(label: 'Leg', value: entry.leg),
+
+            const SizedBox(height: 12),
+
+            _DetailRow(
+              label: 'Total Value',
               value: '₹${totalValue.toStringAsFixed(2)}',
               valueBold: true,
             ),
+
+            if (entry.leg == 'EXIT' && entry.pnl != null) ...[
+              const SizedBox(height: 12),
+
+              _DetailRow(
+                label: 'Realised P&L',
+                value: entry.pnl! >= 0
+                    ? '+₹${entry.pnl!.toStringAsFixed(2)}'
+                    : '-₹${entry.pnl!.abs().toStringAsFixed(2)}',
+                valueBold: true,
+              ),
+            ],
           ],
         ),
       );
@@ -359,20 +330,14 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
-          ),
-        ),
+        Text(label, style: TextStyle(color: Colors.grey.shade500)),
         Text(
           value,
           style: TextStyle(
-            fontSize: 14,
             fontWeight: valueBold ? FontWeight.w700 : FontWeight.w600,
             fontFamily: valueMono ? 'monospace' : null,
             color: isDark ? Colors.white : Colors.black,
@@ -383,39 +348,65 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────
+/// SCREEN
+/// ─────────────────────────────────────────────────────────
 
-class TradeBookScreen extends StatelessWidget {
+class TradeBookScreen extends ConsumerStatefulWidget {
   const TradeBookScreen({super.key});
 
   @override
+  ConsumerState<TradeBookScreen> createState() => _TradeBookScreenState();
+}
+
+class _TradeBookScreenState extends ConsumerState<TradeBookScreen> {
+  @override
+  void initState() {
+    super.initState();
+
+    Future.microtask(() {
+      ref.invalidate(tradebookProvider);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final tradesAsync = ref.watch(tradebookProvider);
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
     final borderColor = isDark ? Colors.white10 : const Color(0xFFE5E5E7);
+
     final headerColor = isDark
         ? const Color(0xFF1E1E1E)
         : const Color(0xFFF4F4F5);
 
     return Container(
       color: isDark ? const Color(0xFF121212) : Colors.white,
+
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+
         child: Container(
           decoration: BoxDecoration(
             border: Border.all(color: borderColor),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
           ),
+
           child: Column(
             children: [
               Container(
                 color: headerColor,
+
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 12,
                 ),
+
                 child: Row(
-                  children: [
+                  children: const [
                     _HeaderCell(label: 'Trade\nTime', flex: 2),
                     _HeaderCell(label: 'Symbol', flex: 3),
                     _HeaderCell(label: 'Buy/Sell', flex: 3),
@@ -427,18 +418,59 @@ class TradeBookScreen extends StatelessWidget {
                   ],
                 ),
               ),
+
               Divider(height: 1, thickness: 1, color: borderColor),
+
               Expanded(
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: _mockTrades.length,
-                  separatorBuilder: (_, __) =>
-                      Divider(height: 1, thickness: 1, color: borderColor),
-                  itemBuilder: (context, index) {
-                    return _TradeRow(
-                      entry: _mockTrades[index],
-                      onTap: () =>
-                          _showTradeDetail(context, _mockTrades[index]),
+                child: tradesAsync.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+
+                  error: (e, _) => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        e.toString(),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey.shade500),
+                      ),
+                    ),
+                  ),
+
+                  data: (trades) {
+                    if (trades.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'No trades found',
+                          style: TextStyle(color: Colors.grey.shade500),
+                        ),
+                      );
+                    }
+
+                    return RefreshIndicator(
+                      onRefresh: () async {
+                        ref.invalidate(tradebookProvider);
+                        await ref.read(tradebookProvider.future);
+                      },
+
+                      child: ListView.separated(
+                        itemCount: trades.length,
+
+                        separatorBuilder: (_, __) => Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: borderColor,
+                        ),
+
+                        itemBuilder: (context, index) {
+                          final trade = trades[index];
+
+                          return _TradeRow(
+                            entry: trade,
+                            onTap: () => _showTradeDetail(context, trade),
+                          );
+                        },
+                      ),
                     );
                   },
                 ),
@@ -465,17 +497,18 @@ class _HeaderCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Expanded(
       flex: flex,
+
       child: Text(
         label,
         textAlign: align,
+
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
           color: isDark ? Colors.grey.shade500 : Colors.grey.shade700,
-          height: 1.3,
-          letterSpacing: 0.2,
         ),
       ),
     );
@@ -490,72 +523,88 @@ class _TradeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isBuy = entry.action == 'Buy';
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final isBuy = entry.action.toLowerCase() == 'buy';
 
     return InkWell(
       onTap: onTap,
+
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               flex: 2,
+
               child: Text(
                 _formatTimeShort(entry.tradeDateTime),
+
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+            ),
+
+            Expanded(
+              flex: 3,
+
+              child: Text(
+                entry.symbolName,
+
                 style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade500,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : Colors.black,
                 ),
               ),
             ),
+
             Expanded(
               flex: 3,
+
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+
                 children: [
                   Text(
-                    entry.symbolName,
+                    '${entry.action} ${entry.quantity}',
+
                     style: TextStyle(
-                      fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : Colors.black,
+                      color: isBuy
+                          ? const Color(0xFF81C784)
+                          : const Color(0xFFE57373),
                     ),
                   ),
-                  Text(
-                    entry.symbolCode,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isDark
-                          ? Colors.grey.shade600
-                          : Colors.grey.shade400,
+
+                  if (entry.leg == 'EXIT' && entry.pnl != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+
+                      child: Text(
+                        entry.pnl! >= 0
+                            ? '+₹${entry.pnl!.toStringAsFixed(2)}'
+                            : '-₹${entry.pnl!.abs().toStringAsFixed(2)}',
+
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: entry.pnl! >= 0 ? Colors.green : Colors.red,
+                        ),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
-            Expanded(
-              flex: 3,
-              child: Text(
-                '${entry.action.toUpperCase()} ${entry.quantity}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: isBuy
-                      ? const Color(0xFF81C784)
-                      : const Color(0xFFE57373),
-                ),
-              ),
-            ),
+
             Expanded(
               flex: 2,
+
               child: Text(
                 '₹${entry.tradePrice.toStringAsFixed(2)}',
+
                 textAlign: TextAlign.right,
+
                 style: TextStyle(
-                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: isDark ? Colors.white : Colors.black,
                 ),

@@ -90,6 +90,7 @@ class StockData {
     double? prevLowerCircuit,
     double? prevWeek52High,
     double? prevWeek52Low,
+    String? companyName,
   }) {
     final ohlc = map['ohlc'] as Map<String, dynamic>? ?? {};
 
@@ -143,7 +144,7 @@ class StockData {
   }
 
   bool get isPositive => changePercent >= 0;
-
+  int get token => instrumentToken;
   String get formattedPrice => price.toStringAsFixed(2);
 
   String get formattedChange =>

@@ -1,7 +1,10 @@
+import 'dart:convert';
+import 'package:capit_n_bulls/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import './stock.dart';
 
-// Semantic color constants matching your theme
 const _gainGreen = Color(0xFF3FD47E);
 const _lossRed = Color(0xFFE05252);
 
@@ -78,56 +81,67 @@ class IndexDetailSheet extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Header ──
+                    // ── Header: FIX — Expanded on name, fixed value column ──
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              data.name,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? theme.colorScheme.surfaceContainerHighest
-                                    : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'NSE Index',
-                                style: TextStyle(
-                                  color: theme.hintColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 1,
+                        // Name + badge — takes all available space, never overflows
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                data.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.2,
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? theme
+                                            .colorScheme
+                                            .surfaceContainerHighest
+                                      : Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'NSE Index',
+                                  style: TextStyle(
+                                    color: theme.hintColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
+
+                        const SizedBox(width: 16),
+
+                        // Value + change pill — fixed width, always right-aligned
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
                               data.value,
                               style: theme.textTheme.titleLarge?.copyWith(
-                                fontSize: 24,
+                                fontSize: 22,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
@@ -168,7 +182,6 @@ class IndexDetailSheet extends StatelessWidget {
                     Divider(color: theme.dividerColor, height: 1),
                     const SizedBox(height: 16),
 
-                    // ── Section label ──
                     Text(
                       'TODAY',
                       style: TextStyle(
@@ -180,8 +193,7 @@ class IndexDetailSheet extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
 
-                    // ── Stats grid ──
-                    const _StatsGrid(),
+                    _StatsGrid(data: data),
 
                     const SizedBox(height: 20),
                   ],
@@ -229,17 +241,26 @@ class IndexDetailSheet extends StatelessWidget {
 
 // ── Stats Grid ────────────────────────────────────────────────────────────────
 class _StatsGrid extends StatelessWidget {
-  const _StatsGrid();
+  final IndexData data;
+  const _StatsGrid({required this.data});
 
   @override
   Widget build(BuildContext context) {
     final stats = [
-      _StatItem(label: 'Open', value: '19,950.00'),
-      _StatItem(label: 'Prev Close', value: '19,900.00'),
-      _StatItem(label: 'High', value: '20,120.50', valueColor: _gainGreen),
-      _StatItem(label: 'Low', value: '19,890.25', valueColor: _lossRed),
-      _StatItem(label: '52W High', value: '21,964.00', valueColor: _gainGreen),
-      _StatItem(label: '52W Low', value: '17,025.00', valueColor: _lossRed),
+      _StatItem(label: 'Open', value: data.open ?? '—'),
+      _StatItem(label: 'Prev Close', value: data.prevClose ?? '—'),
+      _StatItem(label: 'High', value: data.high ?? '—', valueColor: _gainGreen),
+      _StatItem(label: 'Low', value: data.low ?? '—', valueColor: _lossRed),
+      _StatItem(
+        label: '52W High',
+        value: data.week52High ?? '—',
+        valueColor: _gainGreen,
+      ),
+      _StatItem(
+        label: '52W Low',
+        value: data.week52Low ?? '—',
+        valueColor: _lossRed,
+      ),
     ];
 
     return Column(
@@ -294,7 +315,6 @@ class _StatItem {
 }
 
 // ── Order Button ──────────────────────────────────────────────────────────────
-
 class _IndexOrderButton extends StatelessWidget {
   final String label;
   final Color color;
@@ -333,9 +353,15 @@ class _IndexOrderButton extends StatelessWidget {
   }
 }
 
-// ── Order Dialog ──────────────────────────────────────────────────────────────
+// ── Order Result ──────────────────────────────────────────────────────────────
+class _OrderResult {
+  final bool success;
+  final String message;
+  const _OrderResult({required this.success, required this.message});
+}
 
-class _IndexOrderDialog extends StatefulWidget {
+// ── Order Dialog ──────────────────────────────────────────────────────────────
+class _IndexOrderDialog extends ConsumerStatefulWidget {
   final IndexData indexData;
   final bool isBuy;
 
@@ -350,13 +376,117 @@ class _IndexOrderDialog extends StatefulWidget {
   }
 
   @override
-  State<_IndexOrderDialog> createState() => _IndexOrderDialogState();
+  ConsumerState<_IndexOrderDialog> createState() => _IndexOrderDialogState();
 }
 
-class _IndexOrderDialogState extends State<_IndexOrderDialog> {
+class _IndexOrderDialogState extends ConsumerState<_IndexOrderDialog> {
   int _qty = 1;
+  bool _isLoading = false;
 
   Color get _accentColor => widget.isBuy ? _gainGreen : _lossRed;
+
+  Future<_OrderResult> _placeOrder() async {
+    final indexData = widget.indexData;
+    final side = widget.isBuy ? 'BUY' : 'SELL';
+    final userId = ref.read(authProvider.notifier).userId ?? 'unknown';
+
+    final body = {
+      "user_id": userId,
+      "timestamp": DateTime.now().toIso8601String(),
+      "contract_name": indexData.name,
+      "exchange_token": indexData.name,
+      "qty": _qty * 50,
+      "lots": _qty,
+      "side": side,
+      "order_type": "MIS",
+      "product_type": "MARKET",
+      "entry_price":
+          double.tryParse(indexData.value.replaceAll(',', '')) ?? 0.0,
+      "ltp": double.tryParse(indexData.value.replaceAll(',', '')) ?? 0.0,
+      "pnl": 0.0,
+      "status": "OPEN",
+    };
+
+    try {
+      debugPrint("Index Order Payload: ${jsonEncode(body)}");
+
+      final accessToken = ref.read(authProvider.notifier).accessToken;
+      final response = await http
+          .post(
+            Uri.parse('http://69.62.75.117:8765/orders'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        try {
+          debugPrint("Index order success: ${jsonDecode(response.body)}");
+        } catch (_) {}
+        return const _OrderResult(
+          success: true,
+          message: 'Order placed successfully',
+        );
+      }
+
+      String errorMsg = 'Server error (${response.statusCode})';
+      try {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        errorMsg =
+            decoded['detail']?.toString() ??
+            decoded['message']?.toString() ??
+            decoded['error']?.toString() ??
+            errorMsg;
+        debugPrint("Index order error: $decoded");
+      } catch (_) {
+        debugPrint("Raw error: ${response.body}");
+      }
+
+      return _OrderResult(success: false, message: errorMsg);
+    } on http.ClientException catch (e) {
+      return _OrderResult(
+        success: false,
+        message: 'Network error: ${e.message}',
+      );
+    } catch (e) {
+      return _OrderResult(success: false, message: 'Unexpected error: $e');
+    }
+  }
+
+  Future<void> _handleConfirm() async {
+    setState(() => _isLoading = true);
+    final result = await _placeOrder();
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+
+    Navigator.of(context).pop();
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        bottom: bottomPad + 120,
+        left: 16,
+        right: 16,
+        child: _SnackbarToast(
+          success: result.success,
+          message: result.success
+              ? '${widget.isBuy ? 'Buy' : 'Sell'} order: $_qty lot${_qty > 1 ? 's' : ''} '
+                    '(${_qty * 50} qty) of ${widget.indexData.name} placed'
+              : result.message,
+          accentColor: result.success ? _gainGreen : _lossRed,
+          onDone: () => entry.remove(),
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -394,10 +524,14 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  widget.indexData.name,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+                Expanded(
+                  child: Text(
+                    widget.indexData.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
@@ -497,33 +631,32 @@ class _IndexOrderDialogState extends State<_IndexOrderDialog> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${widget.isBuy ? 'Bought' : 'Sold'} $_qty lot${_qty > 1 ? 's' : ''} of ${widget.indexData.name}',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          backgroundColor: _accentColor,
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
+                    onTap: _isLoading ? null : _handleConfirm,
                     child: Container(
                       height: 46,
                       decoration: BoxDecoration(
-                        color: _accentColor,
+                        color: _accentColor.withOpacity(_isLoading ? 0.6 : 1.0),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       alignment: Alignment.center,
-                      child: Text(
-                        'Confirm ${widget.isBuy ? 'Buy' : 'Sell'}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : Text(
+                              'Confirm ${widget.isBuy ? 'Buy' : 'Sell'}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                     ),
                   ),
                 ),
@@ -559,6 +692,98 @@ class _QtyButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
+      ),
+    );
+  }
+}
+
+// ── Snackbar Toast ────────────────────────────────────────────────────────────
+class _SnackbarToast extends StatefulWidget {
+  final bool success;
+  final String message;
+  final Color accentColor;
+  final VoidCallback onDone;
+
+  const _SnackbarToast({
+    required this.success,
+    required this.message,
+    required this.accentColor,
+    required this.onDone,
+  });
+
+  @override
+  State<_SnackbarToast> createState() => _SnackbarToastState();
+}
+
+class _SnackbarToastState extends State<_SnackbarToast>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _ctrl.forward();
+
+    Future.delayed(const Duration(seconds: 4), () async {
+      if (mounted) {
+        await _ctrl.reverse();
+        widget.onDone();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _anim,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: widget.accentColor,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.success ? Icons.check_circle : Icons.error,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  widget.message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

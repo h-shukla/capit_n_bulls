@@ -11,15 +11,9 @@ import './watchlist_app_bar.dart';
 import './stock_bottom_nav_bar.dart';
 
 void main() {
-  runApp(
-    const ProviderScope(
-      // 👈 fix #1: wraps the entire app
-      child: MyApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MyApp()));
 }
 
-// 👈 fix #2: ConsumerWidget so it can read themeProvider
 class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
@@ -58,19 +52,22 @@ class _MainShellState extends State<MainShell> {
     'Settings',
   ];
 
-  final List<Widget> _screens = [
-    const WatchlistScreen(),
-    const OrdersScreen(),
-    const TradeBookScreen(),
-    const MarginScreen(),
-    const SettingsScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: WatchlistAppBar(title: _titles[_currentIndex]),
-      body: _screens[_currentIndex],
+      body: SafeArea(
+        child: KeyedSubtree(
+          key: ValueKey(_currentIndex),
+          child: switch (_currentIndex) {
+            0 => const WatchlistScreen(),
+            1 => const OrdersScreen(),
+            2 => const TradeBookScreen(),
+            3 => const MarginScreen(),
+            _ => const SettingsScreen(),
+          },
+        ),
+      ),
       bottomNavigationBar: StockBottomNavBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),

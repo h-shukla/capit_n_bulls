@@ -1,3 +1,4 @@
+import 'package:capit_n_bulls/login_screen.dart';
 import 'package:capit_n_bulls/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -215,7 +216,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
               GestureDetector(
                 onTap: () {
-                  Navigator.pop(context);
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  );
                 },
                 child: const Center(
                   child: Text.rich(

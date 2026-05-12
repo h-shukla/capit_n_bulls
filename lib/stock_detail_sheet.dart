@@ -1,12 +1,59 @@
 import 'dart:convert';
+import 'package:capit_n_bulls/providers/auth_provider.dart';
+import 'package:capit_n_bulls/providers/live_stocks_provider.dart'; // ← NEW
+import 'package:capit_n_bulls/providers/trading_prefs_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'stock.dart';
 
-class StockDetailSheet extends StatefulWidget {
-  final StockData stock;
+// ── Contract Info Model ───────────────────────────────────────────────────────
 
-  const StockDetailSheet({super.key, required this.stock});
+class _ContractInfo {
+  final int lotSize;
+  final double marginNeeded;
+  final double ltp;
+  final String ltpStatus;
+  final String tradingSymbol;
+
+  const _ContractInfo({
+    required this.lotSize,
+    required this.marginNeeded,
+    required this.ltp,
+    required this.ltpStatus,
+    required this.tradingSymbol,
+  });
+
+  factory _ContractInfo.fromJson(Map<String, dynamic> json) {
+    return _ContractInfo(
+      lotSize: (json['lot_size'] as num?)?.toInt() ?? 1,
+      marginNeeded: (json['margin_needed'] as num?)?.toDouble() ?? 0.0,
+      ltp: (json['ltp'] as num?)?.toDouble() ?? 0.0,
+      ltpStatus: json['ltp_status']?.toString() ?? 'not_in_feed',
+      tradingSymbol: json['trading_symbol']?.toString() ?? '',
+    );
+  }
+
+  bool get isLive => ltpStatus == 'live';
+}
+
+// ── StockDetailSheet ──────────────────────────────────────────────────────────
+// Now accepts a token (int) instead of a StockData snapshot.
+// It watches liveStocksProvider so bid/ask and all prices update in real-time.
+
+class StockDetailSheet extends ConsumerStatefulWidget {
+  /// The instrument token — used to look up live data from the provider.
+  final int token;
+
+  /// Fallback snapshot used only if the token isn't in the provider yet
+  /// (e.g. the sheet was opened before the next WS tick arrives).
+  final StockData fallback;
+
+  const StockDetailSheet({
+    super.key,
+    required this.token,
+    required this.fallback,
+  });
 
   static void show(BuildContext context, StockData stock) {
     showModalBottomSheet(
@@ -15,18 +62,23 @@ class StockDetailSheet extends StatefulWidget {
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black54,
       useSafeArea: true,
-      builder: (_) => StockDetailSheet(stock: stock),
+      // ProviderScope not needed — sheet is inside the existing scope
+      builder: (_) =>
+          StockDetailSheet(token: stock.instrumentToken, fallback: stock),
     );
   }
 
   @override
-  State<StockDetailSheet> createState() => _StockDetailSheetState();
+  ConsumerState<StockDetailSheet> createState() => _StockDetailSheetState();
 }
 
-class _StockDetailSheetState extends State<StockDetailSheet>
+class _StockDetailSheetState extends ConsumerState<StockDetailSheet>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _fadeAnim;
+
+  _ContractInfo? _contractInfo;
+  bool _contractLoading = true;
 
   @override
   void initState() {
@@ -37,6 +89,29 @@ class _StockDetailSheetState extends State<StockDetailSheet>
     );
     _fadeAnim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _ctrl.forward();
+    _loadContractInfo();
+  }
+
+  Future<void> _loadContractInfo() async {
+    try {
+      final response = await http
+          .get(Uri.parse('http://69.62.75.117:8765/contract/${widget.token}'))
+          .timeout(const Duration(seconds: 8));
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        setState(() {
+          _contractInfo = _ContractInfo.fromJson(json);
+          _contractLoading = false;
+        });
+      } else {
+        setState(() => _contractLoading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _contractLoading = false);
+    }
   }
 
   @override
@@ -48,12 +123,28 @@ class _StockDetailSheetState extends State<StockDetailSheet>
   Color get _gainColor => const Color(0xFF3FD47E);
   Color get _lossColor => const Color(0xFFE05252);
 
+  double? _bestBid(StockData s) =>
+      s.depthBuy.isNotEmpty ? s.depthBuy.first.price : null;
+
+  double? _bestAsk(StockData s) =>
+      s.depthSell.isNotEmpty ? s.depthSell.first.price : null;
+
+  int? _bestBidQty(StockData s) =>
+      s.depthBuy.isNotEmpty ? s.depthBuy.first.quantity : null;
+
+  int? _bestAskQty(StockData s) =>
+      s.depthSell.isNotEmpty ? s.depthSell.first.quantity : null;
+
   @override
   Widget build(BuildContext context) {
+    // ── Live data: rebuilds on every WS tick for THIS token only ──────────
+    final stock =
+        ref.watch(liveStocksProvider.select((map) => map[widget.token])) ??
+        widget.fallback;
+
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    final stock = widget.stock;
     final isPositive = stock.changePercent >= 0;
     final accentColor = isPositive ? _gainColor : _lossColor;
 
@@ -97,7 +188,7 @@ class _StockDetailSheetState extends State<StockDetailSheet>
                     controller: scrollController,
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                     children: [
-                      // Header
+                      // ── Header ──
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -183,7 +274,15 @@ class _StockDetailSheetState extends State<StockDetailSheet>
                         ],
                       ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
+                      _divider(theme),
+                      const SizedBox(height: 20),
+
+                      // ── Contract info pill (lot size + margin) ──
+                      const SizedBox(height: 12),
+                      _contractInfoRow(theme, colorScheme),
+
+                      const SizedBox(height: 20),
                       _divider(theme),
                       const SizedBox(height: 20),
 
@@ -215,6 +314,13 @@ class _StockDetailSheetState extends State<StockDetailSheet>
                       _divider(theme),
                       const SizedBox(height: 20),
 
+                      _sectionLabel('MARKET DEPTH', theme),
+                      const SizedBox(height: 12),
+                      _depthLadder(stock, theme),
+                      const SizedBox(height: 20),
+                      _divider(theme),
+                      const SizedBox(height: 12),
+
                       _sectionLabel('CIRCUIT LIMITS', theme),
                       const SizedBox(height: 12),
                       _circuitBar(stock, theme),
@@ -235,6 +341,7 @@ class _StockDetailSheetState extends State<StockDetailSheet>
                 // ── Sticky Buy/Sell Bar ──
                 _BuySellBar(
                   stock: stock,
+                  contractInfo: _contractInfo,
                   gainColor: _gainColor,
                   lossColor: _lossColor,
                 ),
@@ -246,9 +353,259 @@ class _StockDetailSheetState extends State<StockDetailSheet>
     );
   }
 
+  // ── Depth Ladder ──────────────────────────────────────────────────────────
+
+  Widget _depthLadder(StockData stock, ThemeData theme) {
+    final bids = stock.depthBuy;
+    final asks = stock.depthSell;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'BID',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: _gainColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'ASK',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: _lossColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+
+        ...List.generate(5, (i) {
+          final bid = i < bids.length ? bids[i] : null;
+          final ask = i < asks.length ? asks[i] : null;
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _depthCell(
+                    price: bid?.price,
+                    qty: bid?.quantity,
+                    color: _gainColor,
+                    alignEnd: false,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _depthCell(
+                    price: ask?.price,
+                    qty: ask?.quantity,
+                    color: _lossColor,
+                    alignEnd: true,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _depthCell({
+    required double? price,
+    required int? qty,
+    required Color color,
+    required bool alignEnd,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisAlignment: alignEnd
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
+        children: [
+          if (!alignEnd) ...[
+            Text(
+              price != null ? price.toStringAsFixed(2) : '—',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(width: 6),
+            Text(qty != null ? 'Qty: $qty' : '—'),
+          ] else ...[
+            Text(qty != null ? 'Qty: $qty' : '—'),
+            const SizedBox(width: 6),
+            Text(
+              price != null ? price.toStringAsFixed(2) : '—',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Contract info row ─────────────────────────────────────────────────────
+
+  Widget _contractInfoRow(ThemeData theme, ColorScheme colorScheme) {
+    if (_contractLoading) {
+      return Row(
+        children: [
+          _infoPill(
+            icon: Icons.layers_outlined,
+            label: 'Lot Size',
+            value: '—',
+            theme: theme,
+            colorScheme: colorScheme,
+          ),
+          const SizedBox(width: 8),
+          _infoPill(
+            icon: Icons.account_balance_wallet_outlined,
+            label: 'Margin (7×)',
+            value: '—',
+            theme: theme,
+            colorScheme: colorScheme,
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final info = _contractInfo;
+    if (info == null) return const SizedBox.shrink();
+
+    return Row(
+      children: [
+        _infoPill(
+          icon: Icons.layers_outlined,
+          label: 'Lot Size',
+          value: '${info.lotSize}',
+          theme: theme,
+          colorScheme: colorScheme,
+        ),
+        const SizedBox(width: 8),
+        _infoPill(
+          icon: Icons.account_balance_wallet_outlined,
+          label: 'Margin (7×)',
+          value: info.marginNeeded > 0
+              ? '₹${_fmtCompact(info.marginNeeded)}'
+              : '—',
+          theme: theme,
+          colorScheme: colorScheme,
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+          decoration: BoxDecoration(
+            color: (info.isLive ? _gainColor : _lossColor).withValues(
+              alpha: 0.12,
+            ),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: info.isLive ? _gainColor : _lossColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                info.isLive ? 'Live' : 'No Feed',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: info.isLive ? _gainColor : _lossColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _infoPill({
+    required IconData icon,
+    required String label,
+    required String value,
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 5),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colorScheme.onSurface,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   String _fmt(double v) => v.toStringAsFixed(2);
+
+  String _fmtCompact(double v) {
+    if (v >= 1e7) return '${(v / 1e7).toStringAsFixed(2)}Cr';
+    if (v >= 1e5) return '${(v / 1e5).toStringAsFixed(2)}L';
+    if (v >= 1e3) return '${(v / 1e3).toStringAsFixed(1)}K';
+    return v.toStringAsFixed(0);
+  }
 
   Widget _divider(ThemeData theme) =>
       Divider(height: 1, color: theme.dividerColor);
@@ -535,14 +892,17 @@ class _StockDetailSheetState extends State<StockDetailSheet>
   );
 }
 
-// ── Buy/Sell Bar ─────────────────────────────────────────────────────────────
+// ── Buy/Sell Bar ──────────────────────────────────────────────────────────────
 
 class _BuySellBar extends StatelessWidget {
   final StockData stock;
+  final _ContractInfo? contractInfo;
   final Color gainColor;
   final Color lossColor;
+
   const _BuySellBar({
     required this.stock,
+    required this.contractInfo,
     required this.gainColor,
     required this.lossColor,
   });
@@ -565,6 +925,7 @@ class _BuySellBar extends StatelessWidget {
               label: 'BUY',
               color: gainColor,
               stock: stock,
+              contractInfo: contractInfo,
               isBuy: true,
             ),
           ),
@@ -574,6 +935,7 @@ class _BuySellBar extends StatelessWidget {
               label: 'SELL',
               color: lossColor,
               stock: stock,
+              contractInfo: contractInfo,
               isBuy: false,
             ),
           ),
@@ -583,23 +945,34 @@ class _BuySellBar extends StatelessWidget {
   }
 }
 
-class _OrderButton extends StatelessWidget {
+class _OrderButton extends ConsumerWidget {
   final String label;
   final Color color;
   final StockData stock;
+  final _ContractInfo? contractInfo;
   final bool isBuy;
 
   const _OrderButton({
     required this.label,
     required this.color,
     required this.stock,
+    required this.contractInfo,
     required this.isBuy,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final confirmEnabled =
+        ref.watch(tradingPrefsProvider).valueOrNull?.orderConfirmation ?? true;
+
     return GestureDetector(
-      onTap: () => _OrderDialog.show(context, stock, isBuy),
+      onTap: () {
+        if (confirmEnabled) {
+          _OrderDialog.show(context, stock, contractInfo, isBuy);
+        } else {
+          _OrderDialog.showAndAutoConfirm(context, stock, contractInfo, isBuy);
+        }
+      },
       child: Container(
         height: 48,
         decoration: BoxDecoration(
@@ -623,48 +996,81 @@ class _OrderButton extends StatelessWidget {
 
 // ── Order Dialog ──────────────────────────────────────────────────────────────
 
-/// Result model returned after a successful API call.
 class _OrderResult {
   final bool success;
   final String message;
   const _OrderResult({required this.success, required this.message});
 }
 
-class _OrderDialog extends StatefulWidget {
+class _OrderDialog extends ConsumerStatefulWidget {
   final StockData stock;
+  final _ContractInfo? contractInfo;
   final bool isBuy;
+  final ScaffoldMessengerState messenger;
+  final bool autoConfirm;
 
-  const _OrderDialog({required this.stock, required this.isBuy});
+  const _OrderDialog({
+    required this.stock,
+    required this.contractInfo,
+    required this.isBuy,
+    required this.messenger,
+    this.autoConfirm = false,
+  });
 
-  static void show(BuildContext context, StockData stock, bool isBuy) {
+  static void show(
+    BuildContext context,
+    StockData stock,
+    _ContractInfo? contractInfo,
+    bool isBuy,
+  ) {
+    final messenger = ScaffoldMessenger.of(context);
     showDialog(
       context: context,
       barrierColor: Colors.black54,
-      builder: (_) => _OrderDialog(stock: stock, isBuy: isBuy),
+      builder: (_) => _OrderDialog(
+        stock: stock,
+        contractInfo: contractInfo,
+        isBuy: isBuy,
+        messenger: messenger,
+      ),
+    );
+  }
+
+  static void showAndAutoConfirm(
+    BuildContext context,
+    StockData stock,
+    _ContractInfo? contractInfo,
+    bool isBuy,
+  ) {
+    final messenger = ScaffoldMessenger.of(context);
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      builder: (_) => _OrderDialog(
+        stock: stock,
+        contractInfo: contractInfo,
+        isBuy: isBuy,
+        messenger: messenger,
+        autoConfirm: true,
+      ),
     );
   }
 
   @override
-  State<_OrderDialog> createState() => _OrderDialogState();
+  ConsumerState<_OrderDialog> createState() => _OrderDialogState();
 }
 
-class _OrderDialogState extends State<_OrderDialog> {
-  // ── Order fields ──────────────────────────────────────────────────────────
+class _OrderDialogState extends ConsumerState<_OrderDialog> {
   int _qty = 1;
-
-  /// Product type: MIS (intraday) or NRML (carry-forward).
   String _productType = 'MIS';
-
-  /// Whether the user wants a Limit order (shows price field) or Market order.
+  bool _prefsApplied = false;
   bool _isLimitOrder = false;
-
-  /// Limit price controller – only used when [_isLimitOrder] is true.
   final TextEditingController _limitPriceCtrl = TextEditingController();
-
-  // ── API state ─────────────────────────────────────────────────────────────
   bool _isLoading = false;
 
-  // ── Derived ───────────────────────────────────────────────────────────────
+  int get _lotSize => widget.contractInfo?.lotSize ?? 1;
+  int get _actualQty => _qty * _lotSize;
+
   Color get _accentColor =>
       widget.isBuy ? const Color(0xFF3FD47E) : const Color(0xFFE05252);
 
@@ -672,12 +1078,21 @@ class _OrderDialogState extends State<_OrderDialog> {
       ? double.tryParse(_limitPriceCtrl.text) ?? widget.stock.price
       : widget.stock.price;
 
-  double get _total => _qty * _effectivePrice;
+  double get _total => _actualQty * _effectivePrice;
+
+  String _orderLabelToProductType(String label) =>
+      label == 'Intraday' ? 'MIS' : 'NRML';
 
   @override
   void initState() {
     super.initState();
     _limitPriceCtrl.text = widget.stock.price.toStringAsFixed(2);
+
+    if (widget.autoConfirm) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _handleConfirm();
+      });
+    }
   }
 
   @override
@@ -686,56 +1101,69 @@ class _OrderDialogState extends State<_OrderDialog> {
     super.dispose();
   }
 
-  // ── API call ──────────────────────────────────────────────────────────────
-
   Future<_OrderResult> _placeOrder() async {
     final stock = widget.stock;
     final side = widget.isBuy ? 'BUY' : 'SELL';
+    final userId = ref.read(authProvider.notifier).userId ?? 'unknown';
 
     final body = {
-      'user_id': 'user_42',
-      'contract_name': stock.symbol, // e.g. "NIFTY2550018000CE"
-      'exchange_token': stock.companyName, // e.g. "35001"
-      'qty': _qty,
-      'side': side,
-      'order_type': 'NRML', // always NRML – non-editable
-      'product_type': _isLimitOrder ? 'LIMIT' : 'MARKET',
+      "user_id": userId,
+      "timestamp": DateTime.now().toIso8601String(),
+      "total_pnl": 0.0,
+      "contract_name": stock.symbol,
+      "exchange_token": stock.symbol,
+      "qty": _actualQty,
+      "lot_size": _lotSize,
+      "lots": _qty,
+      "side": side,
+      "order_type": _productType == "CNC" ? "NRML" : _productType,
+      "product_type": _isLimitOrder ? "LIMIT" : "MARKET",
+      if (_isLimitOrder) "limit_price": _effectivePrice,
+      "entry_price": _effectivePrice,
+      "ltp": stock.price,
+      "pnl": 0.0,
+      "status": _isLimitOrder ? "PENDING" : "OPEN",
     };
 
-    // Include limit price only for limit orders
-    if (_isLimitOrder) {
-      body['price'] = _effectivePrice;
-    }
-
     try {
+      debugPrint("Order Payload: ${jsonEncode(body)}");
+
+      final accessToken = ref.read(authProvider.notifier).accessToken;
       final response = await http
           .post(
             Uri.parse('http://69.62.75.117:8765/orders'),
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+            },
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        try {
+          debugPrint("Order success: ${jsonDecode(response.body)}");
+        } catch (_) {}
         return const _OrderResult(
           success: true,
           message: 'Order placed successfully',
         );
-      } else {
-        // Try to parse error from body
-        String errorMsg = 'Server error (${response.statusCode})';
-        try {
-          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-          if (decoded.containsKey('message')) {
-            errorMsg = decoded['message'] as String;
-          } else if (decoded.containsKey('error')) {
-            errorMsg = decoded['error'] as String;
-          }
-        } catch (_) {
-          // Keep the default message
-        }
-        return _OrderResult(success: false, message: errorMsg);
       }
+
+      String errorMsg = 'Server error (${response.statusCode})';
+      try {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        errorMsg =
+            decoded['detail']?.toString() ??
+            decoded['message']?.toString() ??
+            decoded['error']?.toString() ??
+            errorMsg;
+        debugPrint("Order error: $decoded");
+      } catch (_) {
+        debugPrint("Raw error: ${response.body}");
+      }
+
+      return _OrderResult(success: false, message: errorMsg);
     } on http.ClientException catch (e) {
       return _OrderResult(
         success: false,
@@ -748,52 +1176,59 @@ class _OrderDialogState extends State<_OrderDialog> {
 
   Future<void> _handleConfirm() async {
     setState(() => _isLoading = true);
-
     final result = await _placeOrder();
-
     if (!mounted) return;
     setState(() => _isLoading = false);
 
-    // 👇 Capture root context BEFORE popping
-    final messenger = ScaffoldMessenger.of(context);
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final bottomPad = MediaQuery.of(context).padding.bottom;
 
     Navigator.of(context).pop();
 
-    messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              result.success ? Icons.check_circle_outline : Icons.error_outline,
-              color: Colors.white,
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                result.success
-                    ? '${widget.isBuy ? 'Buy' : 'Sell'} order for $_qty × ${widget.stock.symbol} placed'
-                    : result.message,
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        bottom: bottomPad + 120,
+        left: 16,
+        right: 16,
+        child: _SnackbarToast(
+          success: result.success,
+          message: result.success
+              ? '${widget.isBuy ? 'Buy' : 'Sell'} order: $_qty lot${_qty > 1 ? 's' : ''} '
+                    '($_actualQty qty) of ${widget.stock.symbol} placed'
+              : result.message,
+          accentColor: result.success
+              ? const Color(0xFF3FD47E)
+              : const Color(0xFFE05252),
+          onDone: () => entry.remove(),
         ),
-        backgroundColor: result.success
-            ? _accentColor
-            : const Color(0xFFE05252),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
       ),
     );
-  }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
+    overlay.insert(entry);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    final prefsAsync = ref.watch(tradingPrefsProvider);
+    prefsAsync.whenData((prefs) {
+      if (!_prefsApplied) {
+        _prefsApplied = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _qty = prefs.defaultQty;
+              _productType = _orderLabelToProductType(prefs.defaultOrder);
+            });
+          }
+        });
+      }
+    });
+
+    final hasLotSize = _lotSize > 1;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -805,7 +1240,7 @@ class _OrderDialogState extends State<_OrderDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Header ──────────────────────────────────────────────────
+              // ── Header ──
               Row(
                 children: [
                   Container(
@@ -841,19 +1276,59 @@ class _OrderDialogState extends State<_OrderDialog> {
               ),
 
               const SizedBox(height: 6),
-              Text(
-                'LTP ₹${widget.stock.formattedPrice}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+              Row(
+                children: [
+                  Text(
+                    'LTP ₹${widget.stock.formattedPrice}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (hasLotSize) ...[
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'Lot: $_lotSize',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
 
               const SizedBox(height: 20),
               Divider(color: theme.dividerColor),
               const SizedBox(height: 16),
 
-              // ── QUANTITY ─────────────────────────────────────────────────
-              _dialogLabel('QUANTITY', theme),
+              // ── QUANTITY ──
+              Row(
+                children: [
+                  _dialogLabel(hasLotSize ? 'LOTS' : 'QUANTITY', theme),
+                  if (hasLotSize) ...[
+                    const Spacer(),
+                    Text(
+                      'qty: $_actualQty',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -865,12 +1340,24 @@ class _OrderDialogState extends State<_OrderDialog> {
                   ),
                   Expanded(
                     child: Center(
-                      child: Text(
-                        '$_qty',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: colorScheme.onSurface,
-                        ),
+                      child: Column(
+                        children: [
+                          Text(
+                            '$_qty',
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          if (hasLotSize)
+                            Text(
+                              'lot${_qty > 1 ? 's' : ''}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
@@ -883,7 +1370,7 @@ class _OrderDialogState extends State<_OrderDialog> {
 
               const SizedBox(height: 20),
 
-              // ── ORDER TYPE (non-editable NRML) ────────────────────────────
+              // ── ORDER TYPE ──
               _dialogLabel('ORDER TYPE', theme),
               const SizedBox(height: 8),
               Container(
@@ -943,7 +1430,7 @@ class _OrderDialogState extends State<_OrderDialog> {
 
               const SizedBox(height: 16),
 
-              // ── PRODUCT TYPE ──────────────────────────────────────────────
+              // ── PRODUCT TYPE ──
               _dialogLabel('PRODUCT TYPE', theme),
               const SizedBox(height: 8),
               Row(
@@ -958,11 +1445,11 @@ class _OrderDialogState extends State<_OrderDialog> {
                   ),
                   const SizedBox(width: 10),
                   _ToggleChip(
-                    label: 'CNC',
+                    label: 'NRML',
                     subtitle: 'Delivery',
-                    selected: _productType == 'CNC',
+                    selected: _productType == 'NRML',
                     selectedColor: _accentColor,
-                    onTap: () => setState(() => _productType = 'CNC'),
+                    onTap: () => setState(() => _productType = 'NRML'),
                     theme: theme,
                   ),
                 ],
@@ -970,7 +1457,7 @@ class _OrderDialogState extends State<_OrderDialog> {
 
               const SizedBox(height: 16),
 
-              // ── PRICE TYPE ────────────────────────────────────────────────
+              // ── PRICE TYPE ──
               _dialogLabel('PRICE TYPE', theme),
               const SizedBox(height: 8),
               Row(
@@ -995,7 +1482,6 @@ class _OrderDialogState extends State<_OrderDialog> {
                 ],
               ),
 
-              // ── LIMIT PRICE (visible only for limit orders) ───────────────
               if (_isLimitOrder) ...[
                 const SizedBox(height: 16),
                 _dialogLabel('LIMIT PRICE', theme),
@@ -1048,16 +1534,31 @@ class _OrderDialogState extends State<_OrderDialog> {
               Divider(color: theme.dividerColor),
               const SizedBox(height: 12),
 
-              // ── TOTAL VALUE ───────────────────────────────────────────────
+              // ── TOTAL VALUE ──
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Est. Total',
-                    style: TextStyle(
-                      color: colorScheme.onSurfaceVariant,
-                      fontSize: 13,
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Est. Total',
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (hasLotSize)
+                        Text(
+                          '$_qty lot${_qty > 1 ? 's' : ''} × $_lotSize × ₹${_effectivePrice.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant.withValues(
+                              alpha: 0.6,
+                            ),
+                            fontSize: 10,
+                          ),
+                        ),
+                    ],
                   ),
                   Text(
                     '₹${_total.toStringAsFixed(2)}',
@@ -1069,9 +1570,34 @@ class _OrderDialogState extends State<_OrderDialog> {
                 ],
               ),
 
+              if (widget.contractInfo != null &&
+                  widget.contractInfo!.marginNeeded > 0) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Margin req. (7×)',
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    ),
+                    Text(
+                      '₹${(widget.contractInfo!.marginNeeded * _qty).toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: colorScheme.onSurface,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+
               const SizedBox(height: 24),
 
-              // ── ACTION BUTTONS ────────────────────────────────────────────
+              // ── ACTION BUTTONS ──
               Row(
                 children: [
                   Expanded(
@@ -1249,4 +1775,99 @@ class _StatItem {
   final String value;
   final Color? valueColor;
   const _StatItem({required this.label, required this.value, this.valueColor});
+}
+
+// ── Snackbar Toast ────────────────────────────────────────────────────────────
+
+class _SnackbarToast extends StatefulWidget {
+  final bool success;
+  final String message;
+  final Color accentColor;
+  final VoidCallback onDone;
+
+  const _SnackbarToast({
+    required this.success,
+    required this.message,
+    required this.accentColor,
+    required this.onDone,
+  });
+
+  @override
+  State<_SnackbarToast> createState() => _SnackbarToastState();
+}
+
+class _SnackbarToastState extends State<_SnackbarToast>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _ctrl.forward();
+
+    Future.delayed(const Duration(seconds: 4), () async {
+      if (mounted) {
+        await _ctrl.reverse();
+        widget.onDone();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _anim,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: widget.accentColor,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.success
+                    ? Icons.check_circle_outline
+                    : Icons.error_outline,
+                color: Colors.white,
+                size: 18,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
