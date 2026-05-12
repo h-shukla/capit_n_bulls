@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:capit_n_bulls/providers/auth_provider.dart';
+import 'package:capit_n_bulls/providers/live_indices_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -8,19 +9,28 @@ import './stock.dart';
 const _gainGreen = Color(0xFF3FD47E);
 const _lossRed = Color(0xFFE05252);
 
-class IndexDetailSheet extends StatelessWidget {
-  final IndexData data;
+class IndexDetailSheet extends ConsumerWidget {
+  /// The index name (e.g., 'NIFTY', 'BANKNIFTY') — used to look up live data
+  final String indexName;
 
-  const IndexDetailSheet({super.key, required this.data});
+  /// Fallback snapshot used only if the index isn't in the provider yet
+  final IndexData fallback;
 
-  static void show(BuildContext context, IndexData data) {
+  const IndexDetailSheet({
+    super.key,
+    required this.indexName,
+    required this.fallback,
+  });
+
+  static void show(BuildContext context, IndexData indexData) {
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 350),
-      pageBuilder: (_, __, ___) => IndexDetailSheet(data: data),
+      pageBuilder: (_, __, ___) =>
+          IndexDetailSheet(indexName: indexData.name, fallback: indexData),
       transitionBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
           parent: animation,
@@ -38,7 +48,10 @@ class IndexDetailSheet extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // ── Live data: rebuilds on every WS tick for THIS index only ──────────
+    final data = ref.watch(liveIndicesProvider)[indexName] ?? fallback;
+
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final semanticColor = data.isPositive ? _gainGreen : _lossRed;
@@ -215,7 +228,8 @@ class IndexDetailSheet extends StatelessWidget {
                       child: _IndexOrderButton(
                         label: 'BUY',
                         color: _gainGreen,
-                        indexData: data,
+                        indexName: indexName,
+                        fallback: fallback,
                         isBuy: true,
                       ),
                     ),
@@ -224,7 +238,8 @@ class IndexDetailSheet extends StatelessWidget {
                       child: _IndexOrderButton(
                         label: 'SELL',
                         color: _lossRed,
-                        indexData: data,
+                        indexName: indexName,
+                        fallback: fallback,
                         isBuy: false,
                       ),
                     ),
@@ -315,23 +330,27 @@ class _StatItem {
 }
 
 // ── Order Button ──────────────────────────────────────────────────────────────
-class _IndexOrderButton extends StatelessWidget {
+class _IndexOrderButton extends ConsumerWidget {
   final String label;
   final Color color;
-  final IndexData indexData;
+  final String indexName;
+  final IndexData fallback;
   final bool isBuy;
 
   const _IndexOrderButton({
     required this.label,
     required this.color,
-    required this.indexData,
+    required this.indexName,
+    required this.fallback,
     required this.isBuy,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final indexData = ref.watch(liveIndicesProvider)[indexName] ?? fallback;
+
     return GestureDetector(
-      onTap: () => _IndexOrderDialog.show(context, indexData, isBuy),
+      onTap: () => _IndexOrderDialog.show(context, indexName, indexData, isBuy),
       child: Container(
         height: 48,
         decoration: BoxDecoration(
@@ -362,16 +381,30 @@ class _OrderResult {
 
 // ── Order Dialog ──────────────────────────────────────────────────────────────
 class _IndexOrderDialog extends ConsumerStatefulWidget {
-  final IndexData indexData;
+  final String indexName;
+  final IndexData fallback;
   final bool isBuy;
 
-  const _IndexOrderDialog({required this.indexData, required this.isBuy});
+  const _IndexOrderDialog({
+    required this.indexName,
+    required this.fallback,
+    required this.isBuy,
+  });
 
-  static void show(BuildContext context, IndexData indexData, bool isBuy) {
+  static void show(
+    BuildContext context,
+    String indexName,
+    IndexData fallback,
+    bool isBuy,
+  ) {
     showDialog(
       context: context,
       barrierColor: Colors.black54,
-      builder: (_) => _IndexOrderDialog(indexData: indexData, isBuy: isBuy),
+      builder: (_) => _IndexOrderDialog(
+        indexName: indexName,
+        fallback: fallback,
+        isBuy: isBuy,
+      ),
     );
   }
 
@@ -386,7 +419,9 @@ class _IndexOrderDialogState extends ConsumerState<_IndexOrderDialog> {
   Color get _accentColor => widget.isBuy ? _gainGreen : _lossRed;
 
   Future<_OrderResult> _placeOrder() async {
-    final indexData = widget.indexData;
+    // Watch live data here inside the async method
+    final indexData =
+        ref.read(liveIndicesProvider)[widget.indexName] ?? widget.fallback;
     final side = widget.isBuy ? 'BUY' : 'SELL';
     final userId = ref.read(authProvider.notifier).userId ?? 'unknown';
 
@@ -421,6 +456,8 @@ class _IndexOrderDialogState extends ConsumerState<_IndexOrderDialog> {
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 10));
+
+      debugPrint(body.toString());
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         try {
@@ -477,7 +514,7 @@ class _IndexOrderDialogState extends ConsumerState<_IndexOrderDialog> {
           success: result.success,
           message: result.success
               ? '${widget.isBuy ? 'Buy' : 'Sell'} order: $_qty lot${_qty > 1 ? 's' : ''} '
-                    '(${_qty * 50} qty) of ${widget.indexData.name} placed'
+                    '(${_qty * 50} qty) of ${widget.indexName} placed'
               : result.message,
           accentColor: result.success ? _gainGreen : _lossRed,
           onDone: () => entry.remove(),
@@ -492,6 +529,10 @@ class _IndexOrderDialogState extends ConsumerState<_IndexOrderDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+
+    // ── Live data: rebuilds on every WS tick for THIS index only ──────────
+    final indexData =
+        ref.watch(liveIndicesProvider)[widget.indexName] ?? widget.fallback;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -526,7 +567,7 @@ class _IndexOrderDialogState extends ConsumerState<_IndexOrderDialog> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    widget.indexData.name,
+                    indexData.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium?.copyWith(
@@ -539,7 +580,7 @@ class _IndexOrderDialogState extends ConsumerState<_IndexOrderDialog> {
 
             const SizedBox(height: 6),
             Text(
-              '@ ${widget.indexData.value}',
+              '@ ${indexData.value}',
               style: TextStyle(color: theme.hintColor, fontSize: 13),
             ),
 

@@ -2,6 +2,7 @@ import 'package:capit_n_bulls/index_detail_sheet.dart';
 import 'package:capit_n_bulls/searchpage.dart';
 import 'package:capit_n_bulls/providers/watchlist_provider.dart';
 import 'package:capit_n_bulls/providers/live_stocks_provider.dart';
+import 'package:capit_n_bulls/providers/live_indices_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
@@ -75,6 +76,24 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     setState(fn);
   }
 
+  String _getMonthCode(int month) {
+    const months = [
+      'JAN',
+      'FEB',
+      'MAR',
+      'APR',
+      'MAY',
+      'JUN',
+      'JUL',
+      'AUG',
+      'SEP',
+      'OCT',
+      'NOV',
+      'DEC'
+    ];
+    return months[month - 1];
+  }
+
   void _connectWebSocket() {
     _channel = WebSocketChannel.connect(Uri.parse(kWsUrl));
     _wsSubscription = _channel.stream.listen(
@@ -114,20 +133,27 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     // ── Extract NIFTY / BANKNIFTY by key prefix matching ─────────────────
     // Keys in price_feed look like "BANKNIFTY26MAYFUT", "NIFTY26MAYFUT" etc.
     // We check BANKNIFTY first (more specific) so it doesn't get caught by
-    // the NIFTY check.
+    // the NIFTY check. Only match futures contracts (ending with FUT).
+    // Also filter to only current month futures.
+    final now = DateTime.now();
+    final currentMonthCode = _getMonthCode(now.month);
+
     for (final entry in priceFeed.entries) {
-      final key = entry.key as String;
+      final key = entry.key;
       if (entry.value is! Map<String, dynamic>) continue;
       final feedEntry = entry.value as Map<String, dynamic>;
 
       String? matchedName;
-      if (key.startsWith('BANKNIFTY')) {
-        matchedName = 'BANKNIFTY';
-      } else if (key.startsWith('NIFTY')) {
-        matchedName = 'NIFTY';
+      if (key.startsWith('BANKNIFTY') && key.endsWith('FUT')) {
+        matchedName = key;
+      } else if (key.startsWith('NIFTY') && key.endsWith('FUT')) {
+        matchedName = key;
       }
 
       if (matchedName == null) continue;
+
+      // Only add if it's the current month contract
+      if (!matchedName.contains(currentMonthCode)) continue;
 
       final ohlc = feedEntry['ohlc'] as Map<String, dynamic>? ?? {};
       final double lastPrice =
@@ -159,12 +185,20 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
 
     // ── Collect all stock updates into a batch ────────────────────────────
     final Map<int, StockData> batch = {};
-    final notifier = ref.read(liveStocksProvider.notifier);
+    final stockNotifier = ref.read(liveStocksProvider.notifier);
     final currentStockMap = ref.read(liveStocksProvider);
+
+    // ── Also prepare index updates ──────────────────────────────────────────
+    final Map<String, IndexData> indexBatch = {};
+    final indexNotifier = ref.read(liveIndicesProvider.notifier);
+    for (final idx in _indices) {
+      indexBatch[idx.name] = idx;
+    }
+
     bool didChange = false;
 
     for (final entry in priceFeed.entries) {
-      final key = entry.key as String;
+      final key = entry.key;
 
       // Skip index futures — already handled above
       if (key.startsWith('BANKNIFTY') || key.startsWith('NIFTY')) continue;
@@ -205,7 +239,10 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
 
     // ── Push the whole batch to the provider in one shot ─────────────────
     if (batch.isNotEmpty) {
-      notifier.updateBatch(batch);
+      stockNotifier.updateBatch(batch);
+    }
+    if (indexBatch.isNotEmpty) {
+      indexNotifier.updateBatch(indexBatch);
     }
 
     if (!mounted) return;
